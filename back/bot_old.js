@@ -4,16 +4,16 @@ const { Client } = require('pg');
 const adminIds = [6705013765, 379802426]; // Замените на ID администраторов
 
  
-const token = '7882565783:AAEZED2W6bc3k3w5hQsqtEOXe7cEDWtvxcE';
+const token = process.env.TG_BOT_ID;
 const bot = new TelegramBot(token, { polling: true });
 
 const dbClient = new Client({
-    user: 'postgres',
-    host: 'localhost',
-    database: 'postgres',
-    password: '123321',
-    port: 5556, // стандартный порт PostgreSQL
-});  
+    user: process.env.DB_USERNAME,
+    host: process.env.DB_HOST,
+    database: process.env.DB_DATABASE,
+    password: process.env.DB_PASS,
+    port: process.env.DC_PORT, 
+});
 
 dbClient.connect();
 
