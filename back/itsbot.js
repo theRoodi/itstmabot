@@ -127,6 +127,7 @@ bot.on('message', (msg) => {
                         [{ text: 'Создать группу', callback_data: 'create_group' }],
                         [{ text: 'Добавить в группу', callback_data: 'add_group' }],
                         [{ text: 'Сменить группу', callback_data: 'change_group' }],
+                        [{ text: 'Назначить лидера группы', callback_data: 'assign_leader' }],
                         // [{ text: 'Назад в меню', callback_data: 'back_to_menu' }]
                     ]
                 }
@@ -198,7 +199,6 @@ bot.on('callback_query', async (callbackQuery) => {
                 }
 
                 const task = taskRes.rows[0];
-                console.log(task);
 
                 const correctAnswers = task.correct_answers.split(' '); // Предполагаем, что ответы хранятся через пробел
 
@@ -295,7 +295,7 @@ bot.onText(/Мой профиль/, async (msg) => {
     try {
         // Получаем информацию о пользователе из базы данных
         const res = await dbClient.query(
-            `SELECT first_name, last_name, points, secret_santa, groupname
+            `SELECT first_name, last_name, points, secret_santa, groupname, is_leader
              FROM users 
              WHERE user_id = $1`,
             [chatId]
@@ -307,14 +307,17 @@ bot.onText(/Мой профиль/, async (msg) => {
             const points = user.points;
             const group = user.groupname;
             const santaStatus = user.secret_santa ? 'Да' : 'Нет';
+            const isLeader = user.is_leader
 
             // Формируем сообщение с профилем пользователя
+            const groupLeader = isLeader ? 'Лидер группы: Да' : ''
             const profileMessage =
                 `👤 Профиль\n\n` +
                 `Полное имя: ${fullName}\n` +
                 `Очки: ${points}\n` +
+                `Участвует в Тайном Санте: ${santaStatus}\n` +
                 `Группа: ${group}\n` +
-                `Участвует в Тайном Санте: ${santaStatus}`;
+                `${groupLeader}`;
 
             // Отправляем сообщение с профилем и кнопками для изменения
             bot.sendMessage(chatId, profileMessage, {
@@ -334,7 +337,70 @@ bot.onText(/Мой профиль/, async (msg) => {
     }
 });
 
+// Обработка нажатия на кнопку "Помощь"
+bot.on('message', (msg) => {
+    if (msg.text === 'Помощь') {
+        const helpMenu = {
+            reply_markup: {
+                inline_keyboard: [
+                    [
+                        { text: 'Описание бота', callback_data: 'help_description' },
+                        { text: 'Призы', callback_data: 'help_prizes' },
+                    ],
+                    [
+                        { text: 'Задать вопрос', callback_data: 'help_question' },
+                    ],
+                ],
+            },
+        };
+        bot.sendMessage(msg.chat.id, 'Выберите один из пунктов помощи:', helpMenu);
+    }
+});
 
+// Обработка кнопок подменю "Помощь"
+bot.on('callback_query', async (callbackQuery) => {
+    const chatId = callbackQuery.message.chat.id;
+    const data = callbackQuery.data;
+
+    if (data === 'help_description') {
+        bot.sendMessage(chatId, 'Бот для участия в конкурсах и жизни компании');
+    } else if (data === 'help_prizes') {
+        bot.sendMessage(chatId, 'Призы зависят от текущих акций. Следите за обновлениями!');
+    } else if (data === 'help_question') {
+        bot.sendMessage(chatId, 'Вы можете задать свой вопрос, отправив сообщение прямо здесь. Администратор свяжется с вами!');
+    }
+});
+// Обработка нажатия на кнопку "Помощь" - "Задать вопрос"
+bot.on('callback_query', async (callbackQuery) => {
+    const chatId = callbackQuery.message.chat.id;
+    const data = callbackQuery.data;
+
+    if (data === 'help_question') {
+        bot.sendMessage(chatId, 'Напишите ваш вопрос, и я передам его администратору.');
+        
+        // Ожидаем следующий ввод от пользователя (вопрос)
+        bot.once('message', (msg) => {
+            const userQuestion = msg.text;
+            const name = `${msg.from.first_name} ${msg.from.last_name ? msg.from.last_name : ''}`;
+            const username = msg.from.username
+
+            // Отправляем вопрос администратору
+            const adminChatId = 6705013765;  // Укажите ID чата администратора
+
+            const questionMessage = `Вопрос от @${username} ${name}:\n${userQuestion}`;
+            
+            bot.sendMessage(adminChatId, questionMessage); // Отправляем сообщение администратору
+            bot.sendMessage(chatId, 'Ваш вопрос был передан администратору. Ожидайте ответа в ЛС.'); 
+
+
+            console.log(`Вопрос от ${userName}: ${userQuestion}`);  // Для отладки
+        });
+    }
+});
+
+
+
+//Добавление заданий
 bot.on('callback_query', async (callbackQuery) => {
     const chatId = callbackQuery.message.chat.id;
     const data = callbackQuery.data;
@@ -434,7 +500,7 @@ bot.on('callback_query', async (callbackQuery) => {
     // Подтверждаем обработку callback_query
     bot.answerCallbackQuery(callbackQuery.id);
 });
-
+//Группы
 bot.on('callback_query', async (callbackQuery) => {
     const chatId = callbackQuery.message.chat.id;
     const data = callbackQuery.data;
@@ -456,6 +522,76 @@ bot.on('callback_query', async (callbackQuery) => {
                     bot.sendMessage(chatId, `Ошибка при создании группы. Возможно, такая группа уже существует.`);
                 }
             });
+        } else if (data === 'assign_leader') {
+            try {
+                // Получаем все группы
+                const groupsResult = await dbClient.query('SELECT DISTINCT groupname FROM users WHERE groupname IS NOT NULL'); 
+                const groups = groupsResult.rows; 
+
+                if (groups.length === 0) {
+                    return bot.sendMessage(chatId, 'Группы отсутствуют.');
+                }
+                // Формируем клавиатуру с выбором группы
+                const groupButtons = groups.map((g) => ({
+                    text: `${g.groupname}`,
+                    callback_data: `select_group_${g.groupname}`
+                })); 
+
+
+                const inlineKeyboard = {
+                    inline_keyboard: [groupButtons]
+                };
+
+                bot.sendMessage(chatId, 'Выберите группу:', { reply_markup: inlineKeyboard });
+                bot.on('callback_query', async (callbackQuery) => {
+                    const data = callbackQuery.data; 
+                    if (data.startsWith('select_group_')) {
+                        const selectedGroup = data.replace('select_group_', '');
+
+                        // Получаем пользователей в выбранной группе
+                        const usersResult = await dbClient.query(
+                            'SELECT user_id, first_name, last_name FROM users WHERE groupname = $1',
+                            [selectedGroup]
+                        );
+
+                        const users = usersResult.rows;
+
+                        if (users.length === 0) {
+                            return bot.sendMessage(chatId, 'В этой группе нет пользователей.');
+                        }
+
+                        // Формируем клавиатуру с выбором пользователя
+                        const userButtons = users.map((u) => ({
+                            text: `${u.first_name} ${u.last_name}`,
+                            callback_data: `assign_leader_${u.user_id}`
+                        }));
+
+                        const userKeyboard = {
+                            inline_keyboard: [userButtons]
+                        };
+
+                        bot.sendMessage(chatId, 'Выберите лидера группы:', { reply_markup: userKeyboard });
+                    }
+
+                    if (data.startsWith('assign_leader_')) {
+                        const userId = data.replace('assign_leader_', '');
+
+                        // Сбрасываем флаг лидера для всех пользователей группы
+                        const userGroupResult = await dbClient.query('SELECT groupname FROM users WHERE user_id = $1', [userId]);
+                        const userGroup = userGroupResult.rows[0].group;
+
+                        await dbClient.query('UPDATE users SET is_leader = false WHERE groupname = $1', [userGroup]);
+
+                        // Назначаем нового лидера
+                        await dbClient.query('UPDATE users SET is_leader = true WHERE user_id = $1', [userId]);
+
+                        bot.sendMessage(chatId, 'Лидер группы успешно назначен!');
+                    }
+                });
+            } catch (error) {
+                console.error('Ошибка при назначении лидера:', error);
+                bot.sendMessage(chatId, 'Произошла ошибка при назначении лидера.');
+            }
         } else if (data === 'add_group') {
             try {
                 // Получаем список всех групп
@@ -531,12 +667,72 @@ bot.on('callback_query', async (callbackQuery) => {
                         }
                     }
                 });
-
-                // Удаляем старые обработчики перед добавлением нового
-                // bot.removeAllListeners('callback_query');
             } catch (error) {
                 console.error('Ошибка при получении списка групп или пользователей:', error);
                 bot.sendMessage(chatId, 'Ошибка при выполнении операции.');
+            }
+        } else if (data === 'change_group') {
+            try {
+                // Получаем список всех пользователей
+                const usersResult = await dbClient.query('SELECT user_id, first_name, last_name, groupname FROM users');
+                const users = usersResult.rows;
+
+                if (users.length === 0) {
+                    return bot.sendMessage(chatId, 'Пользователи не найдены.');
+                }
+
+                // Формируем клавиатуру с выбором пользователя
+                const userButtons = users.map((u) => ({
+                    text: `${u.first_name} ${u.last_name} (${u.groupname || 'Нет'})`,
+                    callback_data: `select_user_${u.user_id}`
+                }));
+
+                const userKeyboard = {
+                    inline_keyboard: [userButtons]
+                };
+
+                bot.sendMessage(chatId, 'Выберите пользователя для смены группы:', { reply_markup: userKeyboard });
+
+                bot.on('callback_query', async (callbackQuery) => {
+                    const data = callbackQuery.data;
+
+                    if (data.startsWith('select_user_')) {
+                        const userId = data.replace('select_user_', '');
+
+                        // Получаем список всех групп
+                        const groupsResult = await dbClient.query('SELECT name FROM groups');
+                        const groups = groupsResult.rows;
+
+                        if (groups.length === 0) {
+                            return bot.sendMessage(chatId, 'Группы не найдены.');
+                        } 
+
+                        // Формируем клавиатуру с выбором группы
+                        const groupButtons = groups.map((g) => ({
+                            text: `${g.name}`,
+                            callback_data: `change_group_${userId}_${g.name}`
+                        }));
+
+                        const groupKeyboard = {
+                            inline_keyboard: [groupButtons]
+                        };
+
+                        bot.sendMessage(chatId, 'Выберите новую группу для пользователя:', { reply_markup: groupKeyboard });
+                    }
+
+                    if (data.startsWith('change_group_')) {
+                        const [_,, userId, newGroupname] = data.split('_'); 
+
+
+                        // Обновляем группу пользователя
+                        await dbClient.query('UPDATE users SET groupname = $1, is_leader = false WHERE user_id = $2', [newGroupname, userId]);
+
+                        bot.sendMessage(chatId, 'Группа пользователя успешно изменена!');
+                    }
+                });
+            } catch (error) {
+                console.error('Ошибка при смене группы:', error);
+                bot.sendMessage(chatId, 'Произошла ошибка при смене группы.');
             }
         }
     }
