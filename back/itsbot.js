@@ -153,10 +153,15 @@ bot.on('callback_query', async (callbackQuery) => {
             // Получаем случайное задание, которое пользователь еще не выполнял
             const res = await dbClient.query(
                 `SELECT * FROM tasks 
-                 WHERE id NOT IN (SELECT task_id FROM completed_tasks WHERE user_id = $1) 
+                 WHERE id NOT IN (SELECT task_id 
+                                   FROM user_answers 
+                                   WHERE user_id = $1 
+                                     AND status = 'completed') 
                  ORDER BY RANDOM() LIMIT 1`,
                 [chatId]
             );
+            console.log(res);
+            
 
             if (res.rows.length > 0) {
                 const task = res.rows[0];
@@ -227,6 +232,17 @@ bot.on('callback_query', async (callbackQuery) => {
                         return bot.sendMessage(chatId, 'Это задание требует отправки изображения.');
                     }
                     responseFileId = msg.photo[msg.photo.length - 1].file_id;
+                    try {
+                        await dbClient.query(
+                            'INSERT INTO user_answers (user_id, task_id, answer, media_type, status, media_id) VALUES ($1, $2, $3, $4, $5, $6)',
+                            [chatId, taskId, responseFileId, media_type, 'pending',responseFileId]
+                        );
+    
+                        bot.sendMessage(chatId, 'Ответ отправлен.');
+                    } catch (error) {
+                        console.error('Ошибка при сохранении ответа:', error);
+                        bot.sendMessage(chatId, 'Произошла ошибка при сохранении вашего ответа.');
+                    }
                 } else if (task.response_type === 'audio') {
                     if (!msg.audio) {
                         return bot.sendMessage(chatId, 'Это задание требует отправки аудио.');
@@ -251,7 +267,7 @@ bot.on('callback_query', async (callbackQuery) => {
             [chatId]
         );
         // Логика для проверки статуса текущего задания 
-        bot.sendMessage(chatId, `${taskRes.rows[0].task_text}`);
+        bot.sendMessage(chatId, `${taskRes.rows[0]?.task_text ? taskRes.rows[0]?.task_text : 'Заданий нет'}`);
     }
 
     // Подтверждаем обработку callback_query
@@ -363,7 +379,7 @@ bot.on('callback_query', async (callbackQuery) => {
     const data = callbackQuery.data;
 
     if (data === 'help_description') {
-        bot.sendMessage(chatId, 'Бот для участия в конкурсах и жизни компании');
+        bot.sendMessage(chatId, 'Бот для участия в конкурсах');
     } else if (data === 'help_prizes') {
         bot.sendMessage(chatId, 'Призы зависят от текущих акций. Следите за обновлениями!');
     } else if (data === 'help_question') {
@@ -465,7 +481,7 @@ bot.on('callback_query', async (callbackQuery) => {
             
             // Получаем все задания и ответы
             const tasksResult = await dbClient.query(
-                `SELECT t.id, t.task_text, ua.answer, u.first_name, u.last_name, u.user_id
+                `SELECT t.id, t.task_text, ua.answer, u.first_name, u.last_name, u.user_id, ua.media_type
                  FROM tasks t 
                  JOIN user_answers ua ON t.id = ua.task_id
                  JOIN users u ON ua.user_id = u.user_id
@@ -487,12 +503,21 @@ bot.on('callback_query', async (callbackQuery) => {
                         [{ text: 'Отклонить', callback_data: `reject_${task.id}_${task.user_id}` }]
                     ]
                 };
-
-                bot.sendMessage(
-                    chatId,
-                    `Задание: ${task.task_text}\nОтвет: ${task.answer}\nПользователь: ${task.first_name} ${task.last_name}`,
-                    { reply_markup: inlineKeyboard }
-                );
+                if(task.media_type === 'text') {
+                    bot.sendMessage(
+                        chatId,
+                        `Задание: ${task.task_text}\nОтвет: ${task.answer}\nПользователь: ${task.first_name} ${task.last_name}`,
+                        { reply_markup: inlineKeyboard }
+                    );
+                } else if (task.media_type === 'image') {
+                    bot.sendPhoto(adminChatId, task.answer)
+                    bot.sendMessage(
+                        chatId,
+                        `Задание: ${task.task_text}\nПользователь: ${task.first_name} ${task.last_name}`,
+                        { reply_markup: inlineKeyboard }
+                    );
+                }
+                
             }); 
         } catch (error) {
             console.error('Ошибка при получении заданий:', error);
@@ -542,37 +567,49 @@ bot.on('callback_query', async (callbackQuery) => {
 bot.on('callback_query', async (callbackQuery) => {
     const chatId = callbackQuery.message.chat.id;
     const data = callbackQuery.data;
+    let res = null
+
+    
 
     if (chatId === adminChatId) {
         console.log(data);
         if (data.startsWith('approve_')) {
             const [_, taskId, userId] = data.split('_');
-            
-
-            try {
-                // Начисляем баллы пользователю
-                await dbClient.query(
-                    'UPDATE users SET points = points + (SELECT points FROM tasks WHERE id = $1) WHERE user_id = $2',
-                    [taskId, userId]
-                );
-
-                // Помечаем задание как выполненное для пользователя
-                // await dbClient.query(
-                //     'UPDATE user_tasks SET status = $1 WHERE user_id = $2 AND task_id = $3',
-                //     ['completed', userId, taskId]
-                // );
-                await dbClient.query(
-                    'UPDATE user_answers SET status = $1 WHERE user_id = $2 AND task_id = $3',
-                    ['completed', userId, taskId]
-                    
-                );
-
-                bot.sendMessage(chatId, 'Ответ подтвержден. Баллы начислены пользователю.');
-                bot.sendMessage(userId, 'Ваш ответ принят, баллы начислены!');
+            try{
+                res = await dbClient.query(
+                    'SELECT * FROM users WHERE user_id = $1',
+                    [userId]
+                ); 
+                
+            console.log(!!res.rows[0].current_task);
+        
             } catch (error) {
-                console.error('Ошибка при подтверждении ответа:', error);
+                console.error('Ошибка при проверке задания:', error);
                 bot.sendMessage(chatId, 'Произошла ошибка при подтверждении ответа.');
             } 
+            
+            if(!!res.rows[0].current_task) {
+                try {
+                    // Начисляем баллы пользователю
+                    await dbClient.query(
+                        'UPDATE users SET current_task = $3, points = points + (SELECT points FROM tasks WHERE id = $1) WHERE user_id = $2',
+                        [taskId, userId, null]
+                    ); 
+    
+                    await dbClient.query(
+                        'UPDATE user_answers SET status = $1 WHERE user_id = $2 AND task_id = $3',
+                        ['completed', userId, taskId]
+                        
+                    );
+    
+                    bot.sendMessage(chatId, 'Ответ подтвержден. Баллы начислены пользователю.');
+                    bot.sendMessage(userId, 'Ваш ответ принят, баллы начислены!');
+                } catch (error) {
+                    console.error('Ошибка при подтверждении ответа:', error);
+                    bot.sendMessage(chatId, 'Произошла ошибка при подтверждении ответа.');
+                } 
+            }
+            
         }
 
         if (data.startsWith('reject_')) {
