@@ -160,8 +160,7 @@ bot.on('callback_query', async (callbackQuery) => {
                  ORDER BY RANDOM() LIMIT 1`,
                 [chatId]
             );
-            console.log(res);
-            
+
 
             if (res.rows.length > 0) {
                 const task = res.rows[0];
@@ -203,29 +202,29 @@ bot.on('callback_query', async (callbackQuery) => {
                     return;
                 }
 
-                const task = taskRes.rows[0]; 
+                const task = taskRes.rows[0];
                 const taskId = task.id
                 const answer = msg.text;
                 const media_type = task.response_type
 
                 // Проверяем тип ответа
                 let responseFileId = null;
-                if (task.response_type === 'text') { 
+                if (task.response_type === 'text') {
                     if (!msg.text) {
                         return bot.sendMessage(chatId, 'Это задание требует текстового ответа.');
-                    }   
+                    }
                     try {
                         await dbClient.query(
                             'INSERT INTO user_answers (user_id, task_id, answer, media_type, status) VALUES ($1, $2, $3, $4, $5)',
                             [chatId, taskId, answer, media_type, 'pending']
                         );
-    
+
                         bot.sendMessage(chatId, 'Ответ отправлен.');
                     } catch (error) {
                         console.error('Ошибка при сохранении ответа:', error);
                         bot.sendMessage(chatId, 'Произошла ошибка при сохранении вашего ответа.');
                     }
-                     
+
 
                 } else if (task.response_type === 'image') {
                     if (!msg.photo) {
@@ -235,24 +234,47 @@ bot.on('callback_query', async (callbackQuery) => {
                     try {
                         await dbClient.query(
                             'INSERT INTO user_answers (user_id, task_id, answer, media_type, status, media_id) VALUES ($1, $2, $3, $4, $5, $6)',
-                            [chatId, taskId, responseFileId, media_type, 'pending',responseFileId]
+                            [chatId, taskId, responseFileId, media_type, 'pending', responseFileId]
                         );
-    
+
                         bot.sendMessage(chatId, 'Ответ отправлен.');
                     } catch (error) {
                         console.error('Ошибка при сохранении ответа:', error);
                         bot.sendMessage(chatId, 'Произошла ошибка при сохранении вашего ответа.');
                     }
                 } else if (task.response_type === 'audio') {
-                    if (!msg.audio) {
+                    if (!msg.voice) {
                         return bot.sendMessage(chatId, 'Это задание требует отправки аудио.');
                     }
-                    responseFileId = msg.audio.file_id;
-                } else if (task.response_type === 'video') {
-                    if (!msg.video) {
-                        return bot.sendMessage(chatId, 'Это задание требует отправки видео.');
+                    responseFileId = msg.voice.file_id;
+                    try {
+                        await dbClient.query(
+                            'INSERT INTO user_answers (user_id, task_id, answer, media_type, status, media_id) VALUES ($1, $2, $3, $4, $5, $6)',
+                            [chatId, taskId, responseFileId, media_type, 'pending', responseFileId]
+                        );
+
+                        bot.sendMessage(chatId, 'Ответ отправлен.');
+                    } catch (error) {
+                        console.error('Ошибка при сохранении ответа:', error);
+                        bot.sendMessage(chatId, 'Произошла ошибка при сохранении вашего ответа.');
                     }
-                    responseFileId = msg.video.file_id;
+
+                } else if (task.response_type === 'video') {
+                    if (!msg.video_note) {
+                        return bot.sendMessage(chatId, 'Это задание требуется снять на камеру.');
+                    }
+                    responseFileId = msg.video_note.file_id
+                    try {
+                        await dbClient.query(
+                            'INSERT INTO user_answers (user_id, task_id, answer, media_type, status, media_id) VALUES ($1, $2, $3, $4, $5, $6)',
+                            [chatId, taskId, responseFileId, media_type, 'pending', responseFileId]
+                        );
+
+                        bot.sendMessage(chatId, 'Ответ отправлен.');
+                    } catch (error) {
+                        console.error('Ошибка при сохранении ответа:', error);
+                        bot.sendMessage(chatId, 'Произошла ошибка при сохранении вашего ответа.');
+                    }
                 }
 
             } catch (error) {
@@ -393,7 +415,7 @@ bot.on('callback_query', async (callbackQuery) => {
 
     if (data === 'help_question') {
         bot.sendMessage(chatId, 'Напишите ваш вопрос, и я передам его администратору.');
-        
+
         // Ожидаем следующий ввод от пользователя (вопрос)
         bot.once('message', (msg) => {
             const userQuestion = msg.text;
@@ -404,12 +426,9 @@ bot.on('callback_query', async (callbackQuery) => {
             const adminChatId = 6705013765;  // Укажите ID чата администратора
 
             const questionMessage = `Вопрос от @${username} ${name}:\n${userQuestion}`;
-            
+
             bot.sendMessage(adminChatId, questionMessage); // Отправляем сообщение администратору
-            bot.sendMessage(chatId, 'Ваш вопрос был передан администратору. Ожидайте ответа в ЛС.'); 
-
-
-            console.log(`Вопрос от ${userName}: ${userQuestion}`);  // Для отладки
+            bot.sendMessage(chatId, 'Ваш вопрос был передан администратору. Ожидайте ответа в ЛС.');
         });
     }
 });
@@ -475,17 +494,16 @@ bot.on('callback_query', async (callbackQuery) => {
         });
     } else if (data === 'check_task') {
         // Логика для проверки задания
-        bot.sendMessage(chatId, 'Выберите задание для проверки.');
+        // bot.sendMessage(chatId, 'Выберите задание для проверки.');
         // Здесь можно добавить функционал для выбора задания для проверки
-        try { 
-            
+        try {
             // Получаем все задания и ответы
             const tasksResult = await dbClient.query(
                 `SELECT t.id, t.task_text, ua.answer, u.first_name, u.last_name, u.user_id, ua.media_type
                  FROM tasks t 
                  JOIN user_answers ua ON t.id = ua.task_id
                  JOIN users u ON ua.user_id = u.user_id
-                 WHERE ua.status = $1`, 
+                 WHERE ua.status = $1`,
                 ['pending']
             );
 
@@ -495,15 +513,14 @@ bot.on('callback_query', async (callbackQuery) => {
 
             const tasks = tasksResult.rows;
             tasks.forEach(task => {
-                console.log(task);
-                
+
                 const inlineKeyboard = {
                     inline_keyboard: [
                         [{ text: 'Подтвердить', callback_data: `approve_${task.id}_${task.user_id}` }],
                         [{ text: 'Отклонить', callback_data: `reject_${task.id}_${task.user_id}` }]
                     ]
                 };
-                if(task.media_type === 'text') {
+                if (task.media_type === 'text') {
                     bot.sendMessage(
                         chatId,
                         `Задание: ${task.task_text}\nОтвет: ${task.answer}\nПользователь: ${task.first_name} ${task.last_name}`,
@@ -516,9 +533,23 @@ bot.on('callback_query', async (callbackQuery) => {
                         `Задание: ${task.task_text}\nПользователь: ${task.first_name} ${task.last_name}`,
                         { reply_markup: inlineKeyboard }
                     );
+                } else if (task.media_type === 'audio') {
+                    bot.sendAudio(adminChatId, task.answer)
+                    bot.sendMessage(
+                        chatId,
+                        `Задание: ${task.task_text}\nПользователь: ${task.first_name} ${task.last_name}`,
+                        { reply_markup: inlineKeyboard }
+                    );
+                } else if (task.media_type === 'video') {
+                    bot.sendVideo(adminChatId, task.answer)
+                    bot.sendMessage(
+                        chatId,
+                        `Задание: ${task.task_text}\nПользователь: ${task.first_name} ${task.last_name}`,
+                        { reply_markup: inlineKeyboard }
+                    );
                 }
-                
-            }); 
+
+            });
         } catch (error) {
             console.error('Ошибка при получении заданий:', error);
             bot.sendMessage(chatId, 'Произошла ошибка при получении заданий.');
@@ -569,58 +600,74 @@ bot.on('callback_query', async (callbackQuery) => {
     const data = callbackQuery.data;
     let res = null
 
-    
+
 
     if (chatId === adminChatId) {
-        console.log(data);
         if (data.startsWith('approve_')) {
             const [_, taskId, userId] = data.split('_');
-            try{
+            try {
                 res = await dbClient.query(
                     'SELECT * FROM users WHERE user_id = $1',
                     [userId]
-                ); 
-                
-            console.log(!!res.rows[0].current_task);
-        
+                );
+
             } catch (error) {
                 console.error('Ошибка при проверке задания:', error);
                 bot.sendMessage(chatId, 'Произошла ошибка при подтверждении ответа.');
-            } 
-            
-            if(!!res.rows[0].current_task) {
+            }
+
+            if (!!res.rows[0].current_task) {
                 try {
                     // Начисляем баллы пользователю
                     await dbClient.query(
                         'UPDATE users SET current_task = $3, points = points + (SELECT points FROM tasks WHERE id = $1) WHERE user_id = $2',
                         [taskId, userId, null]
-                    ); 
-    
+                    );
+
                     await dbClient.query(
                         'UPDATE user_answers SET status = $1 WHERE user_id = $2 AND task_id = $3',
                         ['completed', userId, taskId]
-                        
+
                     );
-    
+
                     bot.sendMessage(chatId, 'Ответ подтвержден. Баллы начислены пользователю.');
                     bot.sendMessage(userId, 'Ваш ответ принят, баллы начислены!');
                 } catch (error) {
                     console.error('Ошибка при подтверждении ответа:', error);
                     bot.sendMessage(chatId, 'Произошла ошибка при подтверждении ответа.');
-                } 
+                }
+            } else {
+                bot.sendMessage(chatId, 'Это задание уже принято');
             }
-            
+
         }
 
         if (data.startsWith('reject_')) {
             const [_, taskId, userId] = data.split('_');
-
             try {
-                bot.sendMessage(chatId, 'Ответ отклонен. Задание останется активным.');
-                bot.sendMessage(userId, 'Ваш ответ отклонен. Пожалуйста, предоставьте другой ответ.');
+                res = await dbClient.query(
+                    'SELECT * FROM users WHERE user_id = $1',
+                    [userId]
+                );
+
             } catch (error) {
-                console.error('Ошибка при отклонении ответа:', error);
-                bot.sendMessage(chatId, 'Произошла ошибка при отклонении ответа.');
+                console.error('Ошибка при проверке задания:', error);
+                bot.sendMessage(chatId, 'Произошла ошибка при подтверждении ответа.');
+            }
+            if (!!res.rows[0].current_task) {
+                try {
+                    await dbClient.query(
+                        'DELETE FROM user_answers WHERE user_id = $1 AND task_id = $2',
+                        [userId, taskId]
+                    );
+                    bot.sendMessage(chatId, 'Ответ отклонен. Задание останется активным.');
+                    bot.sendMessage(userId, 'Ваш ответ отклонен. Пожалуйста, предоставьте другой ответ.');
+                } catch (error) {
+                    console.error('Ошибка при отклонении ответа:', error);
+                    bot.sendMessage(chatId, 'Произошла ошибка при отклонении ответа.');
+                }
+            } else {
+                bot.sendMessage(chatId, 'Это задание уже отклонено');
             }
         }
     }
@@ -655,8 +702,8 @@ bot.on('callback_query', async (callbackQuery) => {
         } else if (data === 'assign_leader') {
             try {
                 // Получаем все группы
-                const groupsResult = await dbClient.query('SELECT DISTINCT groupname FROM users WHERE groupname IS NOT NULL'); 
-                const groups = groupsResult.rows; 
+                const groupsResult = await dbClient.query('SELECT DISTINCT groupname FROM users WHERE groupname IS NOT NULL');
+                const groups = groupsResult.rows;
 
                 if (groups.length === 0) {
                     return bot.sendMessage(chatId, 'Группы отсутствуют.');
@@ -665,7 +712,7 @@ bot.on('callback_query', async (callbackQuery) => {
                 const groupButtons = groups.map((g) => ({
                     text: `${g.groupname}`,
                     callback_data: `select_group_${g.groupname}`
-                })); 
+                }));
 
 
                 const inlineKeyboard = {
@@ -674,7 +721,7 @@ bot.on('callback_query', async (callbackQuery) => {
 
                 bot.sendMessage(chatId, 'Выберите группу:', { reply_markup: inlineKeyboard });
                 bot.on('callback_query', async (callbackQuery) => {
-                    const data = callbackQuery.data; 
+                    const data = callbackQuery.data;
                     if (data.startsWith('select_group_')) {
                         const selectedGroup = data.replace('select_group_', '');
 
@@ -835,7 +882,7 @@ bot.on('callback_query', async (callbackQuery) => {
 
                         if (groups.length === 0) {
                             return bot.sendMessage(chatId, 'Группы не найдены.');
-                        } 
+                        }
 
                         // Формируем клавиатуру с выбором группы
                         const groupButtons = groups.map((g) => ({
@@ -851,7 +898,7 @@ bot.on('callback_query', async (callbackQuery) => {
                     }
 
                     if (data.startsWith('change_group_')) {
-                        const [_,, userId, newGroupname] = data.split('_'); 
+                        const [_, , userId, newGroupname] = data.split('_');
 
 
                         // Обновляем группу пользователя
