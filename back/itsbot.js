@@ -82,10 +82,15 @@ bot.onText(/\/start/, async (msg) => {
 
 
 // Обработка кнопки "Задания"
-bot.on('message', (msg) => {
+bot.on('message', async(msg) => {
     const chatId = msg.chat.id;
 
+    const res = await dbClient.query(`SELECT group_id FROM users WHERE user_id = $1 AND is_leader = true`,
+            [chatId]);
+
     if (msg.text === 'Задания') {
+        console.log(res.rows[0] ? res.rows[0].group_id : 'Not leader');
+        
         // Проверяем, является ли пользователь администратором
         if (chatId === adminChatId) {
             // Подменю для администратора
@@ -94,6 +99,19 @@ bot.on('message', (msg) => {
                     inline_keyboard: [
                         [{ text: 'Добавить задание', callback_data: 'add_task' }],
                         [{ text: 'Проверить задание', callback_data: 'check_task' }],
+                        // [{ text: 'Назад в меню', callback_data: 'back_to_menu' }]
+                    ]
+                }
+            });
+        } else if (res.rows[0]?.group_id) {
+            // Подменю для обычного пользователя
+            bot.sendMessage(chatId, 'Выберите действие:', {
+                reply_markup: {
+                    inline_keyboard: [
+                        [{ text: 'Получить задание', callback_data: 'get_task' }],
+                        [{ text: 'Получить групповое задание', callback_data: 'get_group_task' }],
+                        [{ text: 'Отправить ответ', callback_data: 'send_answer' }],
+                        [{ text: 'Текущее задание', callback_data: 'task_status' }],
                         // [{ text: 'Назад в меню', callback_data: 'back_to_menu' }]
                     ]
                 }
