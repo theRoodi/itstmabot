@@ -330,7 +330,7 @@ bot.on('callback_query', async (callbackQuery) => {
                         try {
                             await dbClient.query(
                                 'INSERT INTO group_task_answers (leader_id, task_id, answer, media_type, status, is_group) VALUES ($1, $2, $3, $4, $5, $6)',
-                                [chatId, taskId, answer, media_type, 'pending', true]
+                                [chatId, taskId, responseFileId, media_type, 'pending', true]
                             );
     
                             bot.sendMessage(chatId, 'Ответ отправлен.');
@@ -389,8 +389,7 @@ bot.on('callback_query', async (callbackQuery) => {
                 console.error(error);
                 bot.sendMessage(chatId, 'Произошла ошибка при проверке ответа.');
             }
-        });
-        // bot.sendMessage(chatId, 'Пожалуйста, отправьте свой ответ в виде текста или изображения.');
+        }); 
     } else if (data === 'task_status') {
         const taskRes = await dbClient.query(
             'SELECT tasks.task_text FROM tasks JOIN users ON tasks.id = users.current_task WHERE users.user_id = $1',
@@ -408,31 +407,76 @@ bot.on('callback_query', async (callbackQuery) => {
 bot.onText(/Список лидеров/, async (msg) => {
     const chatId = msg.chat.id;
 
-    try {
-        // Запрос на получение топ-10 пользователей по количеству баллов
-        const res = await dbClient.query(
-            `SELECT first_name, last_name, points 
-             FROM users 
-             ORDER BY points DESC 
-             LIMIT 10`
-        );
-
-        // Формируем сообщение с лидерами
-        if (res.rows.length > 0) {
-            let leaderboard = '🏆 Топ-10 пользователей по очкам 🏆\n\n';
-            res.rows.forEach((user, index) => {
-                let name = `${user.first_name} ${user.last_name}`
-                leaderboard += `${index + 1}. ${name || 'Аноним'} - ${user.points} очков\n`;
-            });
-            bot.sendMessage(chatId, leaderboard);
-        } else {
-            bot.sendMessage(chatId, 'Список лидеров пуст. Пока никто не набрал очков.');
+    const leaderOptions = {
+        reply_markup: {
+            inline_keyboard: [
+                [
+                    { text: 'Пользователи', callback_data: 'user_leaders' },
+                    { text: 'Группы', callback_data: 'group_leaders' }
+                ]
+            ]
         }
-    } catch (error) {
-        console.error(error);
-        bot.sendMessage(chatId, 'Произошла ошибка при получении списка лидеров.');
-    }
+    };
+    bot.sendMessage(chatId, '🏆 Лидеры 🏆', leaderOptions);
+    
 });
+bot.on('callback_query', async (callbackQuery) => {
+    const chatId = callbackQuery.message.chat.id;
+    const data = callbackQuery.data;
+
+    if (data === 'user_leaders') {
+        // Запрос на получение списка лидеров среди пользователей
+        try {
+            // Запрос на получение топ-10 пользователей по количеству баллов
+            const res = await dbClient.query(
+                `SELECT first_name, last_name, points 
+                 FROM users 
+                 ORDER BY points DESC 
+                 LIMIT 10`
+            );
+    
+            // Формируем сообщение с лидерами
+            if (res.rows.length > 0) {
+                let leaderboard = '🏆 Топ-10 пользователей по очкам 🏆\n\n';
+                res.rows.forEach((user, index) => {
+                    let name = `${user.first_name} ${user.last_name}`
+                    leaderboard += `${index + 1}. ${name || 'Аноним'} - ${user.points} очков\n`;
+                });
+                bot.sendMessage(chatId, leaderboard);
+            } else {
+                bot.sendMessage(chatId, 'Список лидеров пуст. Пока никто не набрал очков.');
+            }
+        } catch (error) {
+            console.error(error);
+            bot.sendMessage(chatId, 'Произошла ошибка при получении списка лидеров.');
+        }
+    } 
+    if (data === 'group_leaders') {
+        // Запрос на получение списка лидеров среди групп
+        try {
+            const result = await dbClient.query(
+                `SELECT name, points
+                 FROM groups
+                 ORDER BY points DESC
+                 LIMIT 10`
+            );
+
+            if (result.rows.length === 0) {
+                return bot.sendMessage(chatId, 'Нет доступных данных о группах.');
+            }
+
+            let response = '🏆 Топ лидеров среди групп:\n\n';
+            result.rows.forEach((group, index) => {
+                response += `${index + 1}. ${group.name} — ${group.points} очков\n`;
+            });
+
+            bot.sendMessage(chatId, response);
+        } catch (error) {
+            console.error('Ошибка при получении списка лидеров групп:', error);
+            bot.sendMessage(chatId, 'Произошла ошибка при получении списка лидеров групп.');
+        }
+    }
+})
 
 // Обработчик кнопки "Мой профиль"
 bot.onText(/Мой профиль/, async (msg) => {
@@ -754,14 +798,12 @@ bot.on('callback_query', async (callbackQuery) => {
                     bot.sendMessage(chatId, 'Произошла ошибка при подтверждении ответа.');
                 }
             } 
-            else if (!!res.rows[0].current_group_task) {
-                console.log(res.rows);
-                
+            else if (!!res.rows[0].current_group_task) {                 
                 try {
                     // Начисляем баллы группе
                     await dbClient.query(
-                        'UPDATE groups SET points = points + (SELECT points FROM group_tasks) WHERE id = $1',
-                        [res.rows[0].group_id]
+                        'UPDATE groups SET points = points + (SELECT points FROM group_tasks WHERE id = $2 ) WHERE id = $1',
+                        [res.rows[0].group_id, res.rows[0].current_group_task]
                     );
 
                     await dbClient.query(
