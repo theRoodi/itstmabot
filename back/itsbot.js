@@ -193,7 +193,7 @@ bot.on('callback_query', async (callbackQuery) => {
                 await dbClient.query('UPDATE users SET current_task = $1 WHERE user_id = $2', [task.id, chatId]);
 
                 // Отправляем задание пользователю
-                bot.sendMessage(chatId, `Ваше задание: ${task.task_text}`, {
+                bot.sendMessage(chatId, `Ваше задание: ${task.task_text}\nНаграда: ${task.points} балл(ов)`, {
                     reply_markup: {
                         inline_keyboard: [
                             [{ text: 'Отправить ответ', callback_data: 'send_answer' }]
@@ -274,7 +274,7 @@ bot.on('callback_query', async (callbackQuery) => {
         if (curTask.rows.length < 1 && groupTask.rows.length < 1) {
             return bot.sendMessage(chatId, 'У вас нет активного задания.');
         } else if (curTaskStatus.rows.some(item => item.status === 'pending')) {
-            const answer = curTaskStatus.rows.find(item => item.status === 'pending')?.answer; 
+            const answer = curTaskStatus.rows.find(item => item.status === 'pending' && item.media_type === 'text')?.answer || 'Медиафайл'; 
             return bot.sendMessage(chatId, `Вы уже отправляли ответ: ${answer}`);
         } else if (curGroupTaskStatus.rows.some(item => item.status === 'pending')) {
             const answer = curGroupTaskStatus.rows.find(item => item.status === 'pending' && item.media_type === 'text')?.answer || 'Медиафайл'; 
@@ -442,7 +442,7 @@ bot.onText(/Список лидеров/, async (msg) => {
             ]
         }
     };
-    bot.sendMessage(chatId, '🏆 Лидеры 🏆', leaderOptions);
+    bot.sendMessage(chatId, 'Список лидеров', leaderOptions);
 
 });
 bot.on('callback_query', async (callbackQuery) => {
@@ -462,14 +462,14 @@ bot.on('callback_query', async (callbackQuery) => {
 
             // Формируем сообщение с лидерами
             if (res.rows.length > 0) {
-                let leaderboard = '🏆 Топ-10 пользователей по очкам 🏆\n\n';
+                let leaderboard = '🏆 Топ-10 пользователей по баллам 🏆\n\n';
                 res.rows.forEach((user, index) => {
                     let name = `${user.first_name} ${user.last_name}`
-                    leaderboard += `${index + 1}. ${name || 'Аноним'} - ${user.points} очков\n`;
+                    leaderboard += `${index + 1}. ${name || 'Аноним'} - ${user.points} балл(ов)\n`;
                 });
                 bot.sendMessage(chatId, leaderboard);
             } else {
-                bot.sendMessage(chatId, 'Список лидеров пуст. Пока никто не набрал очков.');
+                bot.sendMessage(chatId, 'Список лидеров пуст. Пока никто не набрал баллов.');
             }
         } catch (error) {
             console.error(error);
@@ -492,7 +492,7 @@ bot.on('callback_query', async (callbackQuery) => {
 
             let response = '🏆 Топ лидеров среди групп:\n\n';
             result.rows.forEach((group, index) => {
-                response += `${index + 1}. ${group.name} — ${group.points} очков\n`;
+                response += `${index + 1}. ${group.name} — ${group.points} балл(ов)\n`;
             });
 
             bot.sendMessage(chatId, response);
@@ -520,7 +520,7 @@ bot.onText(/Мой профиль/, async (msg) => {
             const user = res.rows[0];
             const fullName = `${user.first_name} ${user.last_name}`;
             const points = user.points;
-            const group = user.groupname;
+            const group = user.groupname  || 'Нет группы';
             const santaStatus = user.secret_santa ? 'Да' : 'Нет';
             const isLeader = user.is_leader
 
@@ -530,8 +530,8 @@ bot.onText(/Мой профиль/, async (msg) => {
                 `👤 Профиль\n\n` +
                 `Полное имя: ${fullName}\n` +
                 `Очки: ${points}\n` +
-                `Участвует в Тайном Санте: ${santaStatus}\n` +
-                `Группа: ${group}\n` +
+                `Участвую в Тайном Санте: ${santaStatus}\n` +
+                `Группа: ${group}\n`  +
                 `${groupLeader}`;
 
             // Отправляем сообщение с профилем и кнопками для изменения
