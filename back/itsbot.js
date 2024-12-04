@@ -98,8 +98,8 @@ bot.on('message', async (msg) => {
                 reply_markup: {
                     inline_keyboard: [
                         [{ text: 'Добавить задание', callback_data: 'add_task' }],
-                        [{ text: 'Проверить задание', callback_data: 'check_task' }],
-                        // [{ text: 'Назад в меню', callback_data: 'back_to_menu' }]
+                        [{ text: 'Добавить задание для групп', callback_data: 'add_group_task' }],
+                        [{ text: 'Проверить задание', callback_data: 'check_task' }]
                     ]
                 }
             });
@@ -265,12 +265,7 @@ bot.on('callback_query', async (callbackQuery) => {
         const curGroupTaskStatus = await dbClient.query(
             'SELECT status, answer, media_type FROM group_task_answers WHERE leader_id = $1',
             [chatId]
-        );
-
-        console.log(curTaskStatus.rows);
-        console.log(curGroupTaskStatus.rows);
-        
-
+        ); 
         if (curTask.rows.length < 1 && groupTask.rows.length < 1) {
             return bot.sendMessage(chatId, 'У вас нет активного задания.');
         } else if (curTaskStatus.rows.some(item => item.status === 'pending')) {
@@ -637,7 +632,7 @@ bot.on('callback_query', async (callbackQuery) => {
                         inline_keyboard: [
                             [
                                 { text: 'Текст', callback_data: 'response_type_text' },
-                                { text: 'Изображение', callback_data: 'response_type_image' },
+                                { text: 'Фото', callback_data: 'response_type_image' },
                             ],
                             [
                                 { text: 'Аудио', callback_data: 'response_type_audio' },
@@ -662,6 +657,58 @@ bot.on('callback_query', async (callbackQuery) => {
                         await dbClient.query(
                             // 'INSERT INTO group_tasks (task_text, points, response_type) VALUES ($1, $2, $3)',
                             'INSERT INTO tasks (task_text, points, response_type) VALUES ($1, $2, $3)',
+                            [taskText, taskPoints, responseType]
+                        );
+                        bot.sendMessage(responseQuery.message.chat.id, 'Задание успешно добавлено!');
+                    } catch (error) {
+                        console.error('Ошибка при добавлении задания:', error);
+                        bot.sendMessage(responseQuery.message.chat.id, 'Ошибка при добавлении задания.');
+                    }
+                });
+            });
+        });
+    } else if (data === 'add_group_task') {
+        await bot.sendMessage(chatId, 'Введите текст задания:');
+        bot.once('message', async (msg) => {
+            const taskText = msg.text;
+
+            await bot.sendMessage(msg.chat.id, 'Укажите количество баллов за выполнение задания:');
+            bot.once('message', async (msg) => {
+                const taskPoints = parseInt(msg.text, 10);
+
+                if (isNaN(taskPoints)) {
+                    return bot.sendMessage(msg.chat.id, 'Ошибка: введите корректное число для баллов.');
+                }
+
+                const keyboard = {
+                    reply_markup: {
+                        inline_keyboard: [
+                            [
+                                { text: 'Текст', callback_data: 'response_type_text' },
+                                { text: 'Фото', callback_data: 'response_type_image' },
+                            ],
+                            [
+                                { text: 'Аудио', callback_data: 'response_type_audio' },
+                                { text: 'Видео', callback_data: 'response_type_video' },
+                            ],
+                        ],
+                    },
+                };
+
+                await bot.sendMessage(msg.chat.id, 'Выберите тип ответа для задания:', keyboard);
+
+                bot.once('callback_query', async (responseQuery) => {
+                    const responseType = responseQuery.data.replace('response_type_', '');
+
+                    await bot.sendMessage(
+                        responseQuery.message.chat.id,
+                        `Создание задания завершено. Текст: "${taskText}", Баллы: ${taskPoints}, Тип ответа: ${responseType}`
+                    );
+
+                    // Добавляем задание в БД
+                    try {
+                        await dbClient.query(
+                            'INSERT INTO group_tasks (task_text, points, response_type) VALUES ($1, $2, $3)',
                             [taskText, taskPoints, responseType]
                         );
                         bot.sendMessage(responseQuery.message.chat.id, 'Задание успешно добавлено!');
