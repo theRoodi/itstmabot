@@ -63,14 +63,12 @@ bot.onText(/\/start/, async (msg) => {
                 'INSERT INTO users (user_id, username, first_name, last_name, points) VALUES ($1, $2, $3, $4, $5)',
                 [chatId, username, firstName, lastName, 0] // По умолчанию 0 баллов
             );
-            bot.sendMessage(chatId, `Добро пожаловать, ${firstName}!`);
+            bot.sendMessage(chatId, `Добро пожаловать, ${firstName}!`, chatId === adminChatId ? adminMenu : mainMenu);
         } else {
-            // Если пользователь уже есть в базе, просто приветствуем его
-            // bot.sendMessage(chatId, );
+            bot.sendMessage(chatId, `С возвращением ${firstName}!`, chatId === adminChatId ? adminMenu : mainMenu); // mainMenu — это ваше главное меню
         }
 
         // Показать главное меню после того как пользователь зарегистрирован
-        bot.sendMessage(chatId, `С возвращением ${firstName}!`, chatId === adminChatId ? adminMenu : mainMenu); // mainMenu — это ваше главное меню
 
     } catch (error) {
         console.error(error);
@@ -455,9 +453,10 @@ bot.on('callback_query', async (callbackQuery) => {
             // Формируем сообщение с лидерами
             if (res.rows.length > 0) {
                 let leaderboard = '🏆 Топ-10 пользователей по баллам 🏆\n\n';
-                res.rows.forEach((user, index) => {
+                res.rows.forEach((user, index) => { 
+                    const ballWord = getBallaWord(user.points);
                     let name = `${user.first_name} ${user.last_name}`
-                    leaderboard += `${index + 1}. ${name || 'Аноним'} - ${user.points} балл(ов)\n`;
+                    leaderboard += `${index + 1}. ${name || 'Аноним'} - ${user.points} ${ballWord}\n`;
                 });
                 bot.sendMessage(chatId, leaderboard);
             } else {
@@ -467,6 +466,9 @@ bot.on('callback_query', async (callbackQuery) => {
             console.error(error);
             bot.sendMessage(chatId, 'Произошла ошибка при получении списка лидеров.');
         }
+        bot.deleteMessage(chatId, callbackQuery.message.message_id).catch((err) => {
+            console.error('Ошибка при удалении сообщения:', err);
+        });
     }
     if (data === 'group_leaders') {
         // Запрос на получение списка лидеров среди групп
@@ -484,7 +486,8 @@ bot.on('callback_query', async (callbackQuery) => {
 
             let response = '🏆 Топ лидеров среди групп:\n\n';
             result.rows.forEach((group, index) => {
-                response += `${index + 1}. ${group.name} — ${group.points} балл(ов)\n`;
+                const ballWord = getBallaWord(group.points);
+                response += `${index + 1}. ${group.name} — ${group.points} ${ballWord}\n`;
             });
 
             bot.sendMessage(chatId, response);
@@ -492,6 +495,9 @@ bot.on('callback_query', async (callbackQuery) => {
             console.error('Ошибка при получении списка лидеров групп:', error);
             bot.sendMessage(chatId, 'Произошла ошибка при получении списка лидеров групп.');
         }
+        bot.deleteMessage(chatId, callbackQuery.message.message_id).catch((err) => {
+            console.error('Ошибка при удалении сообщения:', err);
+        });
     }
 })
 
@@ -516,12 +522,14 @@ bot.onText(/Мой профиль/, async (msg) => {
             const santaStatus = user.secret_santa ? 'Да' : 'Нет';
             const isLeader = user.is_leader
 
+            const ballWord = getBallaWord(points);
+
             // Формируем сообщение с профилем пользователя
             const groupLeader = isLeader ? 'Лидер группы: Да' : ''
             const profileMessage =
                 `👤 Профиль\n\n` +
                 `Полное имя: ${fullName}\n` +
-                `Очки: ${points}\n` +
+                `Баллы: ${points} ${ballWord}\n` +
                 `Участвую в Тайном Санте: ${santaStatus}\n` +
                 `Группа: ${group}\n` +
                 `${groupLeader}`;
@@ -605,6 +613,16 @@ bot.on('message', (msg) => {
     }
 });
 
+function getBallaWord(cost) {
+    if (cost % 10 === 1 && cost % 100 !== 11) {
+        return 'балл';
+    } else if ((cost % 10 >= 2 && cost % 10 <= 4) && (cost % 100 < 12 || cost % 100 > 14)) {
+        return 'балла';
+    } else {
+        return 'баллов';
+    }
+} 
+
 // Обработка кнопок подменю "Помощь"
 bot.on('callback_query', async (callbackQuery) => {
     const chatId = callbackQuery.message.chat.id;
@@ -625,19 +643,20 @@ bot.on('callback_query', async (callbackQuery) => {
             }
     
             // Формируем сообщение с призами
+            
             let prizesMessage = 'Доступные призы:\n\n';
             result.rows.forEach((prize, index) => {
+                const word = getBallaWord(prize.cost);
                 prizesMessage += `${index + 1}. ${prize.name}\n`;
-                prizesMessage += `Стоимость: ${prize.cost} баллов\n`;
-                prizesMessage += `Осталось: ${prize.quantity > 0 ? prize.quantity : 'Нет в наличии'}\n\n`;
+                prizesMessage += `Стоимость: ${prize.cost} ${word}\n`;
+                prizesMessage += `Осталось: ${prize.quantity > 0 ? prize.quantity + ' шт.' : 'Нет в наличии'}\n\n`;
             });
     
             bot.sendMessage(chatId, prizesMessage);
         } catch (error) {
             console.error('Ошибка при получении списка призов:', error);
             bot.sendMessage(chatId, 'Произошла ошибка при получении списка призов.');
-        }
-        bot.sendMessage(chatId, 'Призы зависят от текущих акций. Следите за обновлениями!');
+        } 
     } else if (data === 'help_question') {
         bot.sendMessage(chatId, 'Вы можете задать свой вопрос или пожелание, отправив сообщение прямо здесь. Администратор свяжется с вами!');
     }
@@ -794,6 +813,9 @@ bot.on('callback_query', async (callbackQuery) => {
             });
         });
     } else if (data === 'check_task') {
+        bot.deleteMessage(chatId, callbackQuery.message.message_id).catch((err) => {
+            console.error('Ошибка при удалении сообщения:', err);
+        });
         // Логика для проверки задания  
         try {
             // Получаем все задания и ответы
@@ -877,9 +899,27 @@ bot.on('callback_query', async (callbackQuery) => {
             bot.sendMessage(chatId, 'Произошла ошибка при получении заданий.');
         }
     } else if (data === 'change_name') {
-        bot.sendMessage(chatId, 'Введите ваше новое полное имя.');
-        bot.once('message', async (msg) => {
+        const cancelKeyboard = {
+            reply_markup: {
+                inline_keyboard: [
+                    [{ text: 'Отмена', callback_data: 'cancel' }]
+                ]
+            }
+        };
+    
+        bot.sendMessage(chatId, 'Введите ваше новое полное имя.', cancelKeyboard);
+    
+        const nameChangeHandler = async (msg) => {
+            // Обработчик завершен, нужно удалить его
+            bot.removeListener('message', nameChangeHandler);
+            
+            if (msg.text === 'Отмена') {
+                bot.sendMessage(chatId, 'Действие отменено.');
+                return;
+            }
+    
             const [firstName, lastName] = msg.text.split(' ');
+    
             try {
                 await dbClient.query(
                     `UPDATE users SET first_name = $1, last_name = $2 WHERE user_id = $3`,
@@ -890,6 +930,22 @@ bot.on('callback_query', async (callbackQuery) => {
                 console.error(error);
                 bot.sendMessage(chatId, 'Ошибка при обновлении имени.');
             }
+        };
+    
+        // Слушаем нажатия на кнопки, и если нажали "Отмена", то...
+        bot.on('callback_query', async (callbackQuery) => {
+            const { data, message } = callbackQuery;
+    
+            if (data === 'cancel') {
+                bot.sendMessage(chatId, 'Действие отменено.');
+                bot.removeListener('message', nameChangeHandler); // Удаляем слушатель на ввод имени
+            }
+        });
+    
+        // Добавляем слушатель на ввод имени
+        bot.on('message', nameChangeHandler);
+        bot.deleteMessage(chatId, callbackQuery.message.message_id).catch((err) => {
+            console.error('Ошибка при удалении сообщения:', err);
         });
     } else if (data === 'toggle_santa_status') {// Обработчик кнопки "Изменить участие в Тайном Санте"
         try {
@@ -907,6 +963,9 @@ bot.on('callback_query', async (callbackQuery) => {
             console.error(error);
             bot.sendMessage(chatId, 'Ошибка при обновлении статуса участия в Тайном Санте.');
         }
+        bot.deleteMessage(chatId, callbackQuery.message.message_id).catch((err) => {
+                console.error('Ошибка при удалении сообщения:', err);
+            });
     }
 
     // Подтверждаем обработку callback_query
