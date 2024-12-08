@@ -23,6 +23,16 @@ function isAdmin(chatId) {
     return adminIds.includes(chatId);
 }
 
+function getBallaWord(cost) {
+    if (cost % 10 === 1 && cost % 100 !== 11) {
+        return 'балл';
+    } else if ((cost % 10 >= 2 && cost % 10 <= 4) && (cost % 100 < 12 || cost % 100 > 14)) {
+        return 'балла';
+    } else {
+        return 'баллов';
+    }
+} 
+
 const mainMenu = {
     reply_markup: {
         keyboard: [
@@ -63,9 +73,9 @@ bot.onText(/\/start/, async (msg) => {
                 'INSERT INTO users (user_id, username, first_name, last_name, points) VALUES ($1, $2, $3, $4, $5)',
                 [chatId, username, firstName, lastName, 0] // По умолчанию 0 баллов
             );
-            bot.sendMessage(chatId, `Добро пожаловать, ${firstName}!`, chatId === adminChatId ? adminMenu : mainMenu);
+            bot.sendMessage(chatId, `Добро пожаловать, ${firstName}!`, isAdmin(chatId) ? adminMenu : mainMenu);
         } else {
-            bot.sendMessage(chatId, `С возвращением ${firstName}!`, chatId === adminChatId ? adminMenu : mainMenu); // mainMenu — это ваше главное меню
+            bot.sendMessage(chatId, `С возвращением ${firstName}!`, isAdmin(chatId) ? adminMenu : mainMenu); // mainMenu — это ваше главное меню
         }
 
         // Показать главное меню после того как пользователь зарегистрирован
@@ -88,7 +98,7 @@ bot.on('message', async (msg) => {
 
     if (msg.text === 'Задания') { 
         // Проверяем, является ли пользователь администратором
-        if (chatId === adminChatId) {
+        if (isAdmin(chatId)) {
             // Подменю для администратора
             bot.sendMessage(chatId, 'Выберите действие:', {
                 reply_markup: {
@@ -133,7 +143,7 @@ bot.on('message', (msg) => {
 
     if (msg.text === 'Группы') {
         // Проверяем, является ли пользователь администратором
-        if (chatId === adminChatId) {
+        if (isAdmin(chatId)) {
             // Подменю для администратора
             bot.sendMessage(chatId, 'Выберите действие:', {
                 reply_markup: {
@@ -162,88 +172,319 @@ bot.on('callback_query', async (callbackQuery) => {
     const userId = callbackQuery.message.from.id;
     const data = callbackQuery.data;
 
+    // if (data === 'get_task') {
+    //     try {
+    //         // Получаем случайное задание, которое пользователь еще не выполнял
+    //         const res = await dbClient.query(
+    //             `SELECT * FROM tasks 
+    //              WHERE id NOT IN (SELECT task_id 
+    //                                FROM user_answers 
+    //                                WHERE user_id = $1 
+    //                                  AND status = 'completed') 
+    //              ORDER BY RANDOM() LIMIT 1`,
+    //             [chatId]
+    //         );
+    //         const userCurTask = await dbClient.query(
+    //             `SELECT * FROM users 
+    //              WHERE user_id = $1`,
+    //             [chatId]
+    //         )
+    //         if (!!userCurTask.rows[0].current_group_task || userCurTask.rows[0].current_task) {
+    //             return bot.sendMessage(chatId, 'Не так быстро, новое задание будет доступно после проверки');
+    //         }
+    //         if (res.rows.length > 0) {
+    //             const task = res.rows[0];
+
+    //             // Сохраняем это задание как текущее у пользователя
+    //             await dbClient.query('UPDATE users SET current_task = $1 WHERE user_id = $2', [task.id, chatId]);
+
+    //             // Отправляем задание пользователю
+    //             bot.sendMessage(chatId, `Ваше задание: ${task.task_text}\nНаграда: ${task.points} балл(ов)`, {
+    //                 reply_markup: {
+    //                     inline_keyboard: [
+    //                         [{ text: 'Отправить ответ', callback_data: 'send_answer' }]
+    //                     ]
+    //                 }
+    //             });
+    //         } else {
+    //             bot.sendMessage(chatId, 'На данный момент нет доступных заданий.');
+    //         }
+    //     } catch (error) {
+    //         console.error(error);
+    //         bot.sendMessage(chatId, 'Произошла ошибка при получении задания.');
+    //     }
+    // } 
     if (data === 'get_task') {
         try {
-            // Получаем случайное задание, которое пользователь еще не выполнял
-            const res = await dbClient.query(
-                `SELECT * FROM tasks 
-                 WHERE id NOT IN (SELECT task_id 
-                                   FROM user_answers 
-                                   WHERE user_id = $1 
-                                     AND status = 'completed') 
-                 ORDER BY RANDOM() LIMIT 1`,
-                [chatId]
-            );
+            // Проверяем, есть ли у пользователя незавершенные задания
             const userCurTask = await dbClient.query(
-                `SELECT * FROM users 
+                `SELECT current_task, current_group_task 
+                 FROM users 
                  WHERE user_id = $1`,
                 [chatId]
-            )
-            if (!!userCurTask.rows[0].current_group_task || userCurTask.rows[0].current_task) {
-                return bot.sendMessage(chatId, 'Не так быстро, новое задание будет доступно после проверки');
+            );
+    
+            if (userCurTask.rows[0]?.current_task || userCurTask.rows[0]?.current_group_task) {
+                return bot.sendMessage(chatId, 'Не так быстро, новое задание будет доступно после проверки текущего.');
             }
-            if (res.rows.length > 0) {
-                const task = res.rows[0];
-
-                // Сохраняем это задание как текущее у пользователя
-                await dbClient.query('UPDATE users SET current_task = $1 WHERE user_id = $2', [task.id, chatId]);
-
-                // Отправляем задание пользователю
-                bot.sendMessage(chatId, `Ваше задание: ${task.task_text}\nНаграда: ${task.points} балл(ов)`, {
-                    reply_markup: {
-                        inline_keyboard: [
-                            [{ text: 'Отправить ответ', callback_data: 'send_answer' }]
-                        ]
-                    }
-                });
-            } else {
-                bot.sendMessage(chatId, 'На данный момент нет доступных заданий.');
+    
+            // Получаем список доступных заданий, которые пользователь еще не выполнял
+            const tasksResult = await dbClient.query(
+                `SELECT id, task_text, points, response_type
+                 FROM tasks 
+                 WHERE id NOT IN (
+                    SELECT task_id 
+                    FROM user_answers 
+                    WHERE user_id = $1 AND status = 'completed'
+                 ) 
+                 ORDER BY id LIMIT 10`, // Ограничиваем количество заданий
+                [chatId]
+            );
+    
+            if (tasksResult.rows.length === 0) {
+                return bot.sendMessage(chatId, 'На данный момент нет доступных заданий.');
             }
+            
+    
+            // Формируем inline-клавиатуру с заданиями
+            const inlineKeyboard = tasksResult.rows.map(task => {
+                let imgTask = ''; // Иконка по умолчанию (пуста)
+
+                // Определяем иконку в зависимости от response_type
+                switch (task.response_type) {
+                    case 'text':
+                        imgTask = '📝'; // Иконка для текста
+                        break;
+                    case 'image':
+                        imgTask = '📸'; // Иконка для изображения
+                        break;
+                    case 'audio':
+                        imgTask = '🎵'; // Иконка для аудио
+                        break;
+                    case 'video':
+                        imgTask = '📹'; // Иконка для видео
+                        break;
+                    default:
+                        imgTask = '❓'; // Иконка для неизвестного типа
+                } 
+                console.log(task.response_type);
+                
+                return [{
+                text: `${imgTask} ${task.task_text.slice(0, 50)} (${task.points} ${getBallaWord(task.points)})`,
+                callback_data: `select_task_${task.id}`
+            }]});
+    
+            bot.sendMessage(chatId, 'Выберите задание из списка:', {
+                reply_markup: {
+                    inline_keyboard: inlineKeyboard
+                }
+            });
         } catch (error) {
-            console.error(error);
-            bot.sendMessage(chatId, 'Произошла ошибка при получении задания.');
+            console.error('Ошибка при получении заданий:', error);
+            bot.sendMessage(chatId, 'Произошла ошибка при загрузке списка заданий.');
         }
-    } else if (data === 'get_group_task') {
+    }
+    
+    // Обработчик выбора задания
+    if (data.startsWith('select_task_')) {
+        const taskId = data.split('_')[2]; // Извлекаем ID задания
+    
         try {
-            // Получаем задание для главы группы
-            const res = await dbClient.query(
-                `SELECT * FROM group_tasks 
-                 WHERE id NOT IN (SELECT task_id 
-                                   FROM group_task_answers
-                                   WHERE leader_id = $1 
-                                     AND status = 'completed') 
-                 ORDER BY RANDOM() LIMIT 1`,
-                [chatId]
+            // Получаем информацию о задании
+            const taskResult = await dbClient.query(
+                'SELECT task_text, points FROM tasks WHERE id = $1',
+                [taskId]
             );
+    
+            if (taskResult.rows.length === 0) {
+                return bot.sendMessage(chatId, 'Задание больше недоступно.');
+            }
+    
+            const task = taskResult.rows[0];
+    
+            // Сохраняем это задание как текущее у пользователя
+            await dbClient.query(
+                'UPDATE users SET current_task = $1 WHERE user_id = $2',
+                [taskId, chatId]
+            );
+    
+            // Отправляем текст задания пользователю
+            bot.sendMessage(chatId, `Ваше задание: ${task.task_text}\nНаграда: ${task.points} ${getBallaWord(task.points)}`, {
+                reply_markup: {
+                    inline_keyboard: [
+                        [{ text: 'Отправить ответ', callback_data: 'send_answer' }]
+                    ]
+                }
+            });
+    
+            // Убираем клавиатуру после выбора
+            bot.editMessageReplyMarkup({ inline_keyboard: [] }, {
+                chat_id: callbackQuery.message.chat.id,
+                message_id: callbackQuery.message.message_id
+            });
+        } catch (error) {
+            console.error('Ошибка при выборе задания:', error);
+            bot.sendMessage(chatId, 'Произошла ошибка при выборе задания.');
+        }
+    }
+    
+    // else if (data === 'get_group_task') {
+    //     try {
+    //         // Получаем задание для главы группы
+    //         const res = await dbClient.query(
+    //             `SELECT * FROM group_tasks 
+    //              WHERE id NOT IN (SELECT task_id 
+    //                                FROM group_task_answers
+    //                                WHERE leader_id = $1 
+    //                                  AND status = 'completed') 
+    //              ORDER BY RANDOM() LIMIT 1`,
+    //             [chatId]
+    //         );
+    //         const userCurTask = await dbClient.query(
+    //             `SELECT * FROM users 
+    //              WHERE user_id = $1`,
+    //             [chatId]
+    //         )
+    //         if (!!userCurTask.rows[0].current_group_task || userCurTask.rows[0].current_task) {
+    //             return bot.sendMessage(chatId, 'Не так быстро, новое задание будет доступно после проверки');
+    //         }
+
+    //         console.log(res.rows);
+            
+    //         if (res.rows.length > 0) {
+    //             const task = res.rows[0];
+    //             // Сохраняем это задание как текущее у пользователя
+    //             await dbClient.query('UPDATE users SET current_group_task = $1 WHERE user_id = $2', [task.id, chatId]);
+
+    //             // Отправляем задание пользователю
+    //             bot.sendMessage(chatId, `Ваше задание: ${task.task_text}\nНаграда: ${task.points} ${getBallaWord(task.points)}`, {
+    //                 reply_markup: {
+    //                     inline_keyboard: [
+    //                         [{ text: 'Отправить ответ', callback_data: 'send_answer' }]
+    //                     ]
+    //                 }
+    //             });
+    //         } else {
+    //             bot.sendMessage(chatId, 'На данный момент нет доступных заданий.');
+    //         }
+    //     } catch (error) {
+    //         console.error(error);
+    //         bot.sendMessage(chatId, 'Произошла ошибка при получении задания.');
+    //     }
+    // } 
+    else if (data === 'get_group_task') {
+        try {
+            // Проверяем, есть ли у пользователя незавершенные задания
             const userCurTask = await dbClient.query(
-                `SELECT * FROM users 
+                `SELECT current_group_task, current_task 
+                 FROM users 
                  WHERE user_id = $1`,
                 [chatId]
-            )
-            if (!!userCurTask.rows[0].current_group_task || userCurTask.rows[0].current_task) {
-                return bot.sendMessage(chatId, 'Не так быстро, новое задание будет доступно после проверки');
+            );
+    
+            if (userCurTask.rows[0]?.current_group_task || userCurTask.rows[0]?.current_task) {
+                return bot.sendMessage(chatId, 'Не так быстро, новое задание будет доступно после проверки текущего.');
             }
-            if (res.rows.length > 0) {
-                const task = res.rows[0];
-                // Сохраняем это задание как текущее у пользователя
-                await dbClient.query('UPDATE users SET current_group_task = $1 WHERE user_id = $2', [task.id, chatId]);
+    
+            // Получаем список доступных заданий для группы
+            const tasksResult = await dbClient.query(
+                `SELECT id, task_text, points, response_type
+                 FROM group_tasks 
+                 WHERE id NOT IN (
+                    SELECT task_id 
+                    FROM group_task_answers 
+                    WHERE leader_id = $1 AND status = 'completed'
+                 ) 
+                 ORDER BY id LIMIT 10`, // Ограничиваем количество заданий
+                [chatId]
+            );
+    
+            if (tasksResult.rows.length === 0) {
+                return bot.sendMessage(chatId, 'На данный момент нет доступных заданий.');
+            }
+            
+    
+            // Формируем inline-клавиатуру с заданиями
+            const inlineKeyboard = tasksResult.rows.map(task => {
+                let imgTask = ''; // Иконка по умолчанию (пуста)
 
-                // Отправляем задание пользователю
-                bot.sendMessage(chatId, `Ваше задание: ${task.task_text}\nНаграда: ${task.points} балл(ов)`, {
-                    reply_markup: {
-                        inline_keyboard: [
-                            [{ text: 'Отправить ответ', callback_data: 'send_answer' }]
-                        ]
-                    }
-                });
-            } else {
-                bot.sendMessage(chatId, 'На данный момент нет доступных заданий.');
-            }
+                // Определяем иконку в зависимости от response_type
+                switch (task.response_type) {
+                    case 'text':
+                        imgTask = '📝'; // Иконка для текста
+                        break;
+                    case 'image':
+                        imgTask = '📸'; // Иконка для изображения
+                        break;
+                    case 'audio':
+                        imgTask = '🎵'; // Иконка для аудио
+                        break;
+                    case 'video':
+                        imgTask = '📹'; // Иконка для видео
+                        break;
+                    default:
+                        imgTask = '❓'; // Иконка для неизвестного типа
+                }
+                return [{
+                text: `${imgTask} ${task.task_text.slice(0, 50)} (${task.points} ${getBallaWord(task.points)})`,
+                callback_data: `select_group_task_${task.id}`
+            }]});
+    
+            bot.sendMessage(chatId, 'Выберите задание для вашей группы из списка:', {
+                reply_markup: {
+                    inline_keyboard: inlineKeyboard
+                }
+            });
         } catch (error) {
-            console.error(error);
-            bot.sendMessage(chatId, 'Произошла ошибка при получении задания.');
+            console.error('Ошибка при получении заданий для группы:', error);
+            bot.sendMessage(chatId, 'Произошла ошибка при загрузке списка заданий.');
         }
-    } else if (data === 'send_answer') {
+    }
+    
+    // Обработчик выбора задания для группы
+    if (data.startsWith('select_group_task_')) {
+        const taskId = data.split('_')[3]; // Извлекаем ID задания
+    
+        try {
+            // Получаем информацию о задании
+            const taskResult = await dbClient.query(
+                'SELECT task_text, points FROM group_tasks WHERE id = $1',
+                [taskId]
+            );
+    
+            if (taskResult.rows.length === 0) {
+                return bot.sendMessage(chatId, 'Задание больше недоступно.');
+            }
+    
+            const task = taskResult.rows[0];
+    
+            // Сохраняем это задание как текущее групповое задание у пользователя
+            await dbClient.query(
+                'UPDATE users SET current_group_task = $1 WHERE user_id = $2',
+                [taskId, chatId]
+            );
+    
+            // Отправляем текст задания пользователю
+            bot.sendMessage(chatId, `Ваше задание для группы: ${task.task_text}\nНаграда: ${task.points} ${getBallaWord(task.points)}`, {
+                reply_markup: {
+                    inline_keyboard: [
+                        [{ text: 'Отправить ответ', callback_data: 'send_answer' }]
+                    ]
+                }
+            });
+    
+            // Убираем клавиатуру после выбора
+            bot.editMessageReplyMarkup({ inline_keyboard: [] }, {
+                chat_id: callbackQuery.message.chat.id,
+                message_id: callbackQuery.message.message_id
+            });
+        } catch (error) {
+            console.error('Ошибка при выборе задания для группы:', error);
+            bot.sendMessage(chatId, 'Произошла ошибка при выборе задания.');
+        }
+    }
+    
+    else if (data === 'send_answer') {
         // Получаем текущее задание пользователя
         const curTask = await dbClient.query(
             'SELECT * FROM tasks WHERE id = (SELECT current_task FROM users WHERE user_id = $1)',
@@ -980,7 +1221,7 @@ bot.on('callback_query', async (callbackQuery) => {
 
 
 
-    if (chatId === adminChatId) {
+    if (isAdmin(chatId)) {
         if (data.startsWith('approve_')) {
             const [_, taskId, userId] = data.split('_');
             try {
@@ -1111,7 +1352,7 @@ bot.on('callback_query', async (callbackQuery) => {
 bot.on('callback_query', async (callbackQuery) => {
     const chatId = callbackQuery.message.chat.id;
     const data = callbackQuery.data;
-    if (chatId === adminChatId) {
+    if (isAdmin(chatId)) {
 
         if (data === 'create_group') {
             bot.sendMessage(chatId, 'Введите название новой группы.');
