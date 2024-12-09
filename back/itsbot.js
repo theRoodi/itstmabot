@@ -266,7 +266,7 @@ bot.on('callback_query', async (callbackQuery) => {
                         break;
                     default:
                         imgTask = '❓'; // Иконка для неизвестного типа
-                } 
+                }
 
                 return [{
                     text: `${imgTask} ${task.task_text.slice(0, 50)} (${task.points} ${getBallaWord(task.points)})`,
@@ -793,11 +793,23 @@ bot.onText(/Мой профиль/, async (msg) => {
 });
 
 bot.on('message', (msg) => {
-
     if (msg.text === 'Тайная комната') {
-
-
-        bot.sendMessage(msg.chat.id, 'Воу, ты нашел кое что крутое');
+        const chatId = msg.chat.id; 
+        const keyboard = {
+            reply_markup: {
+                inline_keyboard: [
+                    [
+                        {
+                            text: 'Зайти', // Текст кнопки
+                            web_app: {
+                                url: 'https://itstma.vercel.app/', // URL вашего мини-приложения
+                            },
+                        },
+                    ],
+                ],
+            },
+        };
+        bot.sendMessage(msg.chat.id, 'Воу, да это же настоящая тайная комната!', keyboard);
     }
 });
 
