@@ -794,7 +794,7 @@ bot.onText(/Мой профиль/, async (msg) => {
 
 bot.on('message', (msg) => {
     if (msg.text === 'Тайная комната') {
-        const chatId = msg.chat.id; 
+        const chatId = msg.chat.id;
         const keyboard = {
             reply_markup: {
                 inline_keyboard: [
