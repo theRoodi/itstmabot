@@ -148,11 +148,9 @@ bot.on('message', (msg) => {
             bot.sendMessage(chatId, 'Выберите действие:', {
                 reply_markup: {
                     inline_keyboard: [
-                        [{ text: 'Создать группу', callback_data: 'create_group' }],
-                        [{ text: 'Добавить в группу', callback_data: 'add_group' }],
-                        [{ text: 'Сменить группу', callback_data: 'change_group' }],
-                        [{ text: 'Назначить лидера группы', callback_data: 'assign_leader' }],
-                        // [{ text: 'Назад в меню', callback_data: 'back_to_menu' }]
+                        [{ text: 'Создать группу', callback_data: 'create_group' },{ text: 'Добавить в группу', callback_data: 'add_group' }],
+                        [{ text: 'Сменить группу', callback_data: 'change_group' },{ text: 'Назначить лидера группы', callback_data: 'assign_leader' }],
+                        [{ text: 'Голосование', callback_data: 'roulette_group' }] 
                     ]
                 }
             });
@@ -1130,19 +1128,6 @@ bot.on('callback_query', async (callbackQuery) => {
             await bot.sendMessage(chatId, 'Произошла ошибка. Попробуйте позже.');
         }
     }
-
-    // Убираем кнопки после выбора
-    try {
-        await bot.editMessageReplyMarkup({ inline_keyboard: [] }, {
-            chat_id: callbackQuery.message.chat.id,
-            message_id: callbackQuery.message.message_id
-        });
-    } catch (error) {
-        console.error('Ошибка удаления кнопок:', error);
-    }
-
-    // Подтверждение обработки callback запроса
-    await bot.answerCallbackQuery(callbackQuery.id);
 });
 
 
@@ -1876,6 +1861,19 @@ bot.on('callback_query', async (callbackQuery) => {
             } catch (error) {
                 console.error('Ошибка при смене группы:', error);
                 bot.sendMessage(chatId, 'Произошла ошибка при смене группы.');
+            }
+        } else if (data === 'roulette_group') {
+            bot.editMessageReplyMarkup({ inline_keyboard: [] }, {
+                chat_id: callbackQuery.message.chat.id,
+                message_id: callbackQuery.message.message_id
+            });
+            try {
+                
+
+                bot.sendMessage(chatId, 'Запрос в группы отправлен');
+            } catch (error) {
+                console.error('Ошибка при отправке запроса', error);
+                bot.sendMessage(chatId, 'Произошла ошибка');
             }
         }
     }
