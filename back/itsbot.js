@@ -148,9 +148,9 @@ bot.on('message', (msg) => {
             bot.sendMessage(chatId, 'Выберите действие:', {
                 reply_markup: {
                     inline_keyboard: [
-                        [{ text: 'Создать группу', callback_data: 'create_group' },{ text: 'Добавить в группу', callback_data: 'add_group' }],
-                        [{ text: 'Сменить группу', callback_data: 'change_group' },{ text: 'Назначить лидера группы', callback_data: 'assign_leader' }],
-                        [{ text: 'Голосование', callback_data: 'roulette_group' }] 
+                        [{ text: 'Создать группу', callback_data: 'create_group' }, { text: 'Добавить в группу', callback_data: 'add_group' }],
+                        [{ text: 'Сменить группу', callback_data: 'change_group' }, { text: 'Назначить лидера группы', callback_data: 'assign_leader' }],
+                        [{ text: 'Голосование', callback_data: 'roulette_group' }]
                     ]
                 }
             });
@@ -812,7 +812,7 @@ bot.onText(/Мой профиль/, async (msg) => {
              FROM users 
              WHERE user_id = $1`,
             [chatId]
-        );         
+        );
         const santa_user = await dbClient.query(
             `SELECT first_name, last_name
              FROM users 
@@ -827,8 +827,8 @@ bot.onText(/Мой профиль/, async (msg) => {
             const santaStatus = user.secret_santa ? 'Да' : 'Нет';
             const isLeader = user.is_leader
             const santaFor = user.secret_santa ? `Тайный Санта для <tg-spoiler>${santa_user.rows[0].first_name} ${santa_user.rows[0].last_name}</tg-spoiler>` : ''
-            
-            
+
+
 
             const ballWord = getBallaWord(points);
 
@@ -840,14 +840,17 @@ bot.onText(/Мой профиль/, async (msg) => {
                 `Баллы: ${points} ${ballWord}\n` +
                 `Участвую в Тайном Санте: ${santaStatus}\n` +
                 `${santaFor}\n` +
-                `Группа: ${group}\n` + 
+                `Группа: ${group}\n` +
                 `${groupLeader}`;
 
             // Отправляем сообщение с профилем и кнопками для изменения
             bot.sendMessage(chatId, profileMessage, {
                 reply_markup: {
                     inline_keyboard: [
-                        [{ text: 'Изменить имя', callback_data: 'change_name' }]
+                        [
+                            { text: 'Изменить имя', callback_data: 'change_name' },
+                            { text: 'Бронирования призов', callback_data: 'my_reservations' },
+                        ]
                     ]
                 },
                 parse_mode: 'HTML'
@@ -1013,7 +1016,7 @@ bot.on('callback_query', async (callbackQuery) => {
                 await dbClient.query(
                     'UPDATE users SET santa_for = $1 WHERE user_id = $2',
                     [assignment.santa_id, assignment.user_id]
-                ); 
+                );
                 // Тайный Санта получает сообщение о том, кому он должен дарить подарок
                 bot.sendMessage(assignment.user_id, `Ты Тайный Санта для <tg-spoiler>${receiver.rows[0].first_name} ${receiver.rows[0].last_name}</tg-spoiler>. Удачи!`, { parse_mode: 'HTML' });
                 // bot.sendMessage(assignment.user_id, `Ты Тайный Санта для ${receiver.rows[0].first_name} ${receiver.rows[0].last_name}`);
@@ -1023,7 +1026,7 @@ bot.on('callback_query', async (callbackQuery) => {
 
 
             }
-            
+
         } catch (error) {
             await dbClient.query('ROLLBACK'); // Откатываем транзакцию в случае ошибки
             console.error(error);
@@ -1172,25 +1175,54 @@ bot.on('callback_query', async (callbackQuery) => {
         try {
             // Получаем список доступных призов
             const result = await dbClient.query(
-                'SELECT name, cost, quantity FROM prizes WHERE is_available = $1',
+                'SELECT id, name, cost, quantity FROM prizes WHERE is_available = $1',
                 [true]
             );
-
+    
             if (result.rows.length === 0) {
                 return bot.sendMessage(chatId, 'На данный момент призы недоступны.');
             }
-
+    
+            // Получаем баллы пользователя
+            const userResult = await dbClient.query('SELECT points FROM users WHERE user_id = $1', [chatId]);
+    
+            if (userResult.rows.length === 0) {
+                return bot.sendMessage(chatId, 'Не удалось найти информацию о ваших баллах.');
+            }
+    
+            const userPoints = userResult.rows[0].points;
+    
             // Формируем сообщение с призами
-
-            let prizesMessage = 'Доступные призы:\n\n';
+            let prizesMessage = '🎁 Доступные призы:\n\n';
+            let inlineKeyboard = [];
+    
             result.rows.forEach((prize, index) => {
-                const word = getBallaWord(prize.cost);
+                if (prize.cost <= userPoints && prize.quantity > 0) {
+                    // Если у пользователя хватает баллов для бронирования
+                    const button = {
+                        text: `${prize.name} (${prize.cost} баллов)`,
+                        callback_data: `reserve_${prize.id}`,
+                    };
+                    inlineKeyboard.push([button]); // Добавляем кнопку для бронирования
+                }
+    
                 prizesMessage += `${index + 1}. ${prize.name}\n`;
-                prizesMessage += `Стоимость: ${prize.cost} ${word}\n`;
+                prizesMessage += `Стоимость: ${prize.cost} баллов\n`;
                 prizesMessage += `Осталось: ${prize.quantity > 0 ? prize.quantity + ' шт.' : 'Нет в наличии'}\n\n`;
             });
-
-            bot.sendMessage(chatId, prizesMessage);
+    
+            if (inlineKeyboard.length === 0) {
+                prizesMessage += 'У вас нет достаточно баллов для бронирования призов.';
+            }
+            prizesMessage += `\nВаш баланс: *${userPoints} ${getBallaWord(userPoints)}*`;
+            // Отправляем сообщение с кнопками бронирования
+            bot.sendMessage(chatId, prizesMessage, {
+                reply_markup: {
+                    inline_keyboard: inlineKeyboard 
+                },
+                parse_mode: 'Markdown'
+            });
+    
         } catch (error) {
             console.error('Ошибка при получении списка призов:', error);
             bot.sendMessage(chatId, 'Произошла ошибка при получении списка призов.');
@@ -1199,6 +1231,82 @@ bot.on('callback_query', async (callbackQuery) => {
         bot.sendMessage(chatId, 'Вы можете задать свой вопрос или пожелание, отправив сообщение прямо здесь. Администратор свяжется с вами!');
     }
 });
+bot.on('callback_query', async (query) => {
+    const chatId = query.message.chat.id;
+    const userId = query.from.id;
+    const data = query.data;
+
+    if (data.startsWith('reserve_')) {
+        const prizeId = data.split('_')[1];
+
+        try {
+            // Начинаем транзакцию, чтобы избежать проблем с конкурентным доступом
+            await dbClient.query('BEGIN');
+
+            // Получаем информацию о призе
+            const prizeResult = await dbClient.query(
+                'SELECT name, cost, quantity FROM prizes WHERE id = $1 AND is_available = $2',
+                [prizeId, true]
+            );
+
+            if (prizeResult.rows.length === 0 || prizeResult.rows[0].quantity <= 0) {
+                await dbClient.query('ROLLBACK');
+                return bot.sendMessage(chatId,'Этот приз уже недоступен.' );
+            }
+
+            const prize = prizeResult.rows[0];
+
+            // Получаем количество баллов пользователя
+            const userResult = await dbClient.query('SELECT points FROM users WHERE user_id = $1', [userId]);
+            console.log(userResult);
+            
+
+            if (userResult.rows.length === 0 || userResult.rows[0].points < prize.cost) {
+                await dbClient.query('ROLLBACK');
+                return bot.sendMessage(chatId,'У вас недостаточно баллов для бронирования.' );
+            }
+
+            // Списываем баллы и уменьшаем количество приза
+            await dbClient.query('UPDATE users SET points = points - $1 WHERE user_id = $2', [prize.cost, userId]);
+            await dbClient.query('UPDATE prizes SET quantity = quantity - 1 WHERE id = $1', [prizeId]);
+            
+            //Кол-во баллов у пользователя
+            const user = await dbClient.query(
+                'SELECT user_id, first_name, last_name, points FROM users WHERE user_id = $1',
+                [chatId]
+            );
+
+            const prizes = await dbClient.query(
+                'SELECT name, cost FROM prizes WHERE id = $1',
+                [prizeId]
+            );
+
+            const points = user.rows[0].points
+            const prize_name = prizes.rows[0].name
+
+            // Записываем бронирование в таблицу prize_reservations
+            await dbClient.query(
+                'INSERT INTO prize_reservations (user_id, prize_id, name) VALUES ($1, $2, $3)',
+                [userId, prizeId, prize_name]
+            );
+
+            // Завершаем транзакцию
+            await dbClient.query('COMMIT');
+
+            // bot.answerCallbackQuery(query.id, { text: `Вы забронировали приз: ${prize.name}`, show_alert: true });
+            bot.sendMessage(chatId, `🎉 Вы успешно забронировали *${prize.name}*!\nСписали: *${prize.cost} ${getBallaWord(points)}*.\nОсталось: *${points} ${getBallaWord(points)}*`, { parse_mode: 'Markdown' });
+        } catch (error) {
+            await dbClient.query('ROLLBACK');
+            console.error('Ошибка при бронировании приза:', error);
+            bot.sendMessage(chatId,'Произошла ошибка при бронировании.' );
+        }
+    }
+});
+
+
+
+
+
 // Обработка нажатия на кнопку "Помощь" - "Задать вопрос"
 bot.on('callback_query', async (callbackQuery) => {
     const chatId = callbackQuery.message.chat.id;
@@ -1428,8 +1536,7 @@ bot.on('callback_query', async (callbackQuery) => {
                             reply_markup: inlineKeyboard
                         }
                     );
-                } else if (task.media_type === 'video') {
-                    console.log(task);
+                } else if (task.media_type === 'video') { 
 
                     await bot.sendVideo(
                         chatId,
@@ -1493,6 +1600,31 @@ bot.on('callback_query', async (callbackQuery) => {
         bot.deleteMessage(chatId, callbackQuery.message.message_id).catch((err) => {
             console.error('Ошибка при удалении сообщения:', err);
         });
+    } else if (data === 'my_reservations') { 
+        try {
+            const result = await dbClient.query(`
+                SELECT p.name AS prize_name, r.reserved_at
+                FROM prize_reservations r
+                JOIN prizes p ON r.prize_id = p.id
+                WHERE r.user_id = $1
+                ORDER BY r.reserved_at DESC
+            `, [chatId]);
+    
+            if (result.rows.length === 0) {
+                return bot.sendMessage(chatId, 'У вас нет забронированных призов.\nЗарабатывай баллы и обменивай их на подарки 🎁\n\nКоличество подарков ограничено! 🕐');
+            }
+    
+            let message = '🎟 *Ваши забронированные призы:*\n\n';
+            result.rows.forEach((row, index) => {
+                message += `${index + 1}. ${row.prize_name}\n`;
+                message += `📅 Дата бронирования: ${new Date(row.reserved_at).toLocaleString()}\n\n`;
+            });
+    
+            bot.sendMessage(chatId, message, { parse_mode: 'Markdown' });
+        } catch (error) {
+            console.error('Ошибка при получении бронирований:', error);
+            bot.sendMessage(chatId, 'Произошла ошибка при получении ваших бронирований.');
+        } 
     }
     // Подтверждаем обработку callback_query
     bot.answerCallbackQuery(callbackQuery.id);
@@ -1635,6 +1767,10 @@ bot.on('callback_query', async (callbackQuery) => {
     if (isAdmin(chatId)) {
 
         if (data === 'create_group') {
+            bot.editMessageReplyMarkup({ inline_keyboard: [] }, {
+                chat_id: callbackQuery.message.chat.id,
+                message_id: callbackQuery.message.message_id
+            });
             bot.sendMessage(chatId, 'Введите название новой группы.');
             bot.once('message', async (groupNameMsg) => {
                 const groupName = groupNameMsg.text.trim();
@@ -1651,6 +1787,10 @@ bot.on('callback_query', async (callbackQuery) => {
                 }
             });
         } else if (data === 'assign_leader') {
+            bot.editMessageReplyMarkup({ inline_keyboard: [] }, {
+                chat_id: callbackQuery.message.chat.id,
+                message_id: callbackQuery.message.message_id
+            });
             try {
                 // Получаем все группы
                 const groupsResult = await dbClient.query('SELECT DISTINCT groupname FROM users WHERE groupname IS NOT NULL');
@@ -1721,6 +1861,10 @@ bot.on('callback_query', async (callbackQuery) => {
                 bot.sendMessage(chatId, 'Произошла ошибка при назначении лидера.');
             }
         } else if (data === 'add_group') {
+            bot.editMessageReplyMarkup({ inline_keyboard: [] }, {
+                chat_id: callbackQuery.message.chat.id,
+                message_id: callbackQuery.message.message_id
+            });
             try {
                 // Получаем список всех групп
                 const groups = await dbClient.query(`SELECT id, name FROM groups`);
@@ -1782,7 +1926,8 @@ bot.on('callback_query', async (callbackQuery) => {
                             const result = await dbClient.query(
                                 `UPDATE users SET group_id = $1, groupname = $2 WHERE user_id = $3`,
                                 [groupId, groupName, userId]
-                            );
+                            ); 
+                            
 
                             if (result.rowCount === 0) {
                                 return bot.sendMessage(chatId, `Пользователь с ID ${userId} не найден.`);
@@ -1799,7 +1944,11 @@ bot.on('callback_query', async (callbackQuery) => {
                 console.error('Ошибка при получении списка групп или пользователей:', error);
                 bot.sendMessage(chatId, 'Ошибка при выполнении операции.');
             }
-        } else if (data === 'change_group') {
+        } else if (data === 'change_group') { 
+            bot.editMessageReplyMarkup({ inline_keyboard: [] }, {
+                chat_id: callbackQuery.message.chat.id,
+                message_id: callbackQuery.message.message_id
+            });
             try {
                 // Получаем список всех пользователей
                 const usersResult = await dbClient.query('SELECT user_id, first_name, last_name, groupname FROM users');
@@ -1828,7 +1977,7 @@ bot.on('callback_query', async (callbackQuery) => {
                         const userId = data.replace('select_user_', '');
 
                         // Получаем список всех групп
-                        const groupsResult = await dbClient.query('SELECT name FROM groups');
+                        const groupsResult = await dbClient.query('SELECT name, id FROM groups');
                         const groups = groupsResult.rows;
 
                         if (groups.length === 0) {
@@ -1838,7 +1987,7 @@ bot.on('callback_query', async (callbackQuery) => {
                         // Формируем клавиатуру с выбором группы
                         const groupButtons = groups.map((g) => ({
                             text: `${g.name}`,
-                            callback_data: `change_group_${userId}_${g.name}`
+                            callback_data: `change_group_${userId}_${g.name}_${g.id}`
                         }));
 
                         const groupKeyboard = {
@@ -1849,11 +1998,9 @@ bot.on('callback_query', async (callbackQuery) => {
                     }
 
                     if (data.startsWith('change_group_')) {
-                        const [_, , userId, newGroupname] = data.split('_');
-
-
+                        const [_, , userId, newGroupname, group_id] = data.split('_');                      
                         // Обновляем группу пользователя
-                        await dbClient.query('UPDATE users SET groupname = $1, is_leader = false WHERE user_id = $2', [newGroupname, userId]);
+                        await dbClient.query('UPDATE users SET groupname = $1, is_leader = false, group_id = $2 WHERE user_id = $3', [newGroupname,group_id, userId]);
 
                         bot.sendMessage(chatId, 'Группа пользователя успешно изменена!');
                     }
@@ -1868,13 +2015,134 @@ bot.on('callback_query', async (callbackQuery) => {
                 message_id: callbackQuery.message.message_id
             });
             try {
-                
+                // Проверяем, есть ли группы без лидера
+                const groupsWithoutLeaders = await dbClient.query(`
+                    SELECT g.id AS group_id, u.user_id AS user_id, u.first_name, u.last_name
+                    FROM groups g
+                    JOIN users u ON u.group_id = g.id
+                    WHERE g.leader_id IS NULL
+                `);
 
-                bot.sendMessage(chatId, 'Запрос в группы отправлен');
+                if (groupsWithoutLeaders.rowCount === 0) {                     
+                    return bot.sendMessage(chatId, "Нет групп без лидера.");
+                }
+
+                // Группируем пользователей по группам
+                const groups = groupsWithoutLeaders.rows.reduce((acc, row) => {
+                    acc[row.group_id] = acc[row.group_id] || [];
+                    acc[row.group_id].push({
+                        user_id: row.user_id,
+                        full_name: `${row.first_name} ${row.last_name || ''}`.trim(),
+                    });
+                    return acc;
+                }, {});
+
+                // Отправляем голосование пользователям каждой группы
+                for (const [groupId, users] of Object.entries(groups)) {
+                    // Генерируем список кандидатов с именами и фамилиями
+                    const candidates = users.map((user) => ({
+                        text: `Голосовать за ${user.full_name}`,
+                        callback_data: `vote_${groupId}_${user.user_id}`,
+                    }));
+
+                    // Рассылаем сообщение с голосованием только пользователям из своей группы
+                    users.forEach((user) => {
+                        bot.sendMessage(user.user_id, "Выберите лидера вашей группы:", {
+                            reply_markup: {
+                                inline_keyboard: candidates.map((candidate) => [candidate]),
+                            },
+                        });
+                    });
+                }
+
+                bot.sendMessage(chatId, "Голосование начато.");
             } catch (error) {
-                console.error('Ошибка при отправке запроса', error);
-                bot.sendMessage(chatId, 'Произошла ошибка');
+                console.error("Ошибка при запуске голосования:", error.message);
+                bot.sendMessage(chatId, "Произошла ошибка при запуске голосования.");
             }
+        }
+    }
+});
+
+bot.on("callback_query", async (query) => {
+    bot.editMessageReplyMarkup({ inline_keyboard: [] }, {
+        chat_id: query.message.chat.id,
+        message_id: query.message.message_id
+    }); 
+    
+    const [action, groupId, candidateId] = query.data.split("_");
+
+    if (action === "vote") {
+        const voterId = query.from.id;
+        try {
+            // Проверяем, уже голосовал ли пользователь
+            const existingVote = await dbClient.query(
+                `SELECT * FROM group_votes WHERE group_id = $1 AND voter_id = $2`,
+                [groupId, voterId]
+            ); 
+
+            if (existingVote.rowCount > 0) {
+                return bot.sendMessage(voterId, "Вы уже проголосовали!" );
+            }
+
+            // Сохраняем голос
+            await dbClient.query(
+                `INSERT INTO group_votes (group_id, voter_id, candidate_id) VALUES ($1, $2, $3)`,
+                [groupId, voterId, candidateId]
+            );
+
+            bot.sendMessage(voterId, "Ваш голос учтён!"); 
+
+            // Проверяем, проголосовали ли все пользователи
+            const groupUsers = await dbClient.query(
+                `SELECT COUNT(*) FROM users WHERE group_id = $1`,
+                [groupId]
+            );
+
+            const totalVotes = await dbClient.query(
+                `SELECT COUNT(*) FROM group_votes WHERE group_id = $1`,
+                [groupId]
+            );
+
+            if (parseInt(groupUsers.rows[0].count) === parseInt(totalVotes.rows[0].count)) {
+                // Подводим итоги голосования
+                const result = await dbClient.query(
+                    `
+                SELECT candidate_id, COUNT(candidate_id) AS votes
+                FROM group_votes
+                WHERE group_id = $1
+                GROUP BY candidate_id
+                ORDER BY votes DESC
+                LIMIT 1
+            `,
+                    [groupId]
+                );
+
+                const leaderId = result.rows[0].candidate_id;
+
+                // Обновляем лидера в таблице групп
+                await dbClient.query(`UPDATE groups SET leader_id = $1 WHERE id = $2`, [
+                    leaderId,
+                    groupId,
+                ]);
+                //Добавляем статус лидера пользователю
+                await dbClient.query(`UPDATE users SET is_leader = $1 WHERE user_id = $2`, [
+                    true,
+                    leaderId
+                ]);
+
+                // Уведомляем нового лидера
+                bot.sendMessage(leaderId, "Вы стали лидером вашей группы!");
+
+                // Очищаем таблицу голосов для группы
+                await dbClient.query(`DELETE FROM group_votes WHERE group_id = $1`, [groupId]);
+            }
+        } catch (error) {
+            console.error("Ошибка записи голоса:", error.message);
+            bot.sendMessage(query.id, {
+                text: "Ошибка при голосовании. Попробуйте позже.",
+                show_alert: true,
+            });
         }
     }
 });
