@@ -2,8 +2,7 @@ const TelegramBot = require('node-telegram-bot-api');
 const { Client } = require('pg');
 require('dotenv').config()
 
-const adminIds = [6705013765, 379802426, 6611272818]; // ID администраторов
-const adminChatId = 6705013765; // Замените на ваш chatId администратора
+const adminIds = [6705013765, 379802426, 6611272818]; // ID администраторов 
 
 
 const token = process.env.TG_BOT_ID;
@@ -49,7 +48,8 @@ const adminMenu = {
         keyboard: [
             [{ text: 'Задания' }, { text: 'Список лидеров' }],
             [{ text: 'Мой профиль' }, { text: 'Помощь' }],
-            [{ text: 'Группы' }, { text: 'Тайный санта' }]
+            [{ text: 'Группы' }, { text: 'Тайный санта' }],
+            [{ text: 'Пользователи' }]
         ],
         resize_keyboard: true,
         one_time_keyboard: false
@@ -59,32 +59,35 @@ const adminMenu = {
 // Отправляем основное меню при запуске бота
 bot.onText(/\/start/, async (msg) => {
     const chatId = msg.chat.id;
-    const username = msg.from.username || "Не указано";  // Если имя пользователя не указано, ставим "Не указано"
+    const username = msg.from.username || "Не указано";  // Если имя пользователя не указано
     const firstName = msg.from.first_name || "Не указано"; // Имя пользователя
-    const lastName = msg.from.last_name || "Не указано"; // Фамилия пользователя (если есть)
+    const lastName = msg.from.last_name || "Не указано"; // Фамилия пользователя
 
     try {
-        // Проверяем, существует ли пользователь в базе данных
-        const res = await dbClient.query('SELECT * FROM users WHERE user_id = $1', [chatId]);
+        // Проверяем существование пользователя в базе данных
+        const { rows } = await dbClient.query('SELECT * FROM users WHERE user_id = $1', [chatId]);
 
-        if (res.rows.length === 0) {
-            // Если пользователя нет в базе, добавляем нового
+        if (rows.length === 0) {
+            // Добавляем нового пользователя, если он отсутствует в базе
             await dbClient.query(
-                'INSERT INTO users (user_id, username, first_name, last_name, points) VALUES ($1, $2, $3, $4, $5)',
-                [chatId, username, firstName, lastName, 0] // По умолчанию 0 баллов
+                `INSERT INTO users (user_id, username, first_name, last_name, points) 
+                 VALUES ($1, $2, $3, $4, $5)`,
+                [chatId, username, firstName, lastName, 0]
             );
             bot.sendMessage(chatId, `Добро пожаловать, ${firstName}!`, isAdmin(chatId) ? adminMenu : mainMenu);
         } else {
-            bot.sendMessage(chatId, `С возвращением ${firstName}!`, isAdmin(chatId) ? adminMenu : mainMenu); // mainMenu — это ваше главное меню
+            // Приветствие для возвращающегося пользователя
+            bot.sendMessage(chatId, `С возвращением, ${firstName}!`, isAdmin(chatId) ? adminMenu : mainMenu);
         }
 
-        // Показать главное меню после того как пользователь зарегистрирован
-
     } catch (error) {
-        console.error(error);
+        console.error(`Ошибка при обработке команды /start: ${error.message}`);
         bot.sendMessage(chatId, 'Произошла ошибка при обработке команды /start.');
     }
 });
+
+
+
 
 
 
@@ -93,47 +96,88 @@ bot.onText(/\/start/, async (msg) => {
 bot.on('message', async (msg) => {
     const chatId = msg.chat.id;
 
-    const res = await dbClient.query(`SELECT group_id FROM users WHERE user_id = $1 AND is_leader = true`,
-        [chatId]);
+    try {
+        // Проверка на команду "Задания"
+        if (msg.text === 'Задания') {
+            // Проверка, является ли пользователь администратором
+            if (isAdmin(chatId)) {
+                return bot.sendMessage(chatId, 'Выберите действие:', {
+                    reply_markup: {
+                        inline_keyboard: [
+                            [{ text: '➕ Добавить задание', callback_data: 'add_task' }],
+                            [{ text: '👥 Добавить групповое задание', callback_data: 'add_group_task' }],
+                            [{ text: '✅ Проверить задание', callback_data: 'check_task' }]
+                        ]
+                    }
+                });
+            }
 
-    if (msg.text === 'Задания') {
-        // Проверяем, является ли пользователь администратором
-        if (isAdmin(chatId)) {
-            // Подменю для администратора
-            bot.sendMessage(chatId, 'Выберите действие:', {
-                reply_markup: {
-                    inline_keyboard: [
-                        [{ text: 'Добавить задание', callback_data: 'add_task' }],
-                        [{ text: 'Добавить задание для групп', callback_data: 'add_group_task' }],
-                        [{ text: 'Проверить задание', callback_data: 'check_task' }]
-                    ]
-                }
-            });
-        } else if (res.rows[0]?.group_id) {
-            // Подменю для главы группы
-            bot.sendMessage(chatId, 'Выберите действие:', {
-                reply_markup: {
-                    inline_keyboard: [
-                        [{ text: 'Получить задание', callback_data: 'get_task' }],
-                        [{ text: 'Получить групповое задание', callback_data: 'get_group_task' }],
-                        [{ text: 'Отправить ответ', callback_data: 'send_answer' }],
-                        [{ text: 'Текущее задание', callback_data: 'task_status' }],
-                        // [{ text: 'Назад в меню', callback_data: 'back_to_menu' }]
-                    ]
-                }
-            });
-        } else {
+            // Проверяем, является ли пользователь лидером группы
+            const { rows } = await dbClient.query(
+                `SELECT group_id FROM users WHERE user_id = $1 AND is_leader = true`,
+                [chatId]
+            );
+
+            if (rows[0]?.group_id) {
+                return bot.sendMessage(chatId, 'Выберите действие:', {
+                    reply_markup: {
+                        inline_keyboard: [
+                            [{ text: '📋 Получить задание', callback_data: 'get_task' }],
+                            [{ text: '👥 Получить групповое задание', callback_data: 'get_group_task' }],
+                            [{ text: '📤 Отправить ответ', callback_data: 'send_answer' }],
+                            [{ text: 'ℹ️ Текущее задание', callback_data: 'task_status' }]
+                        ]
+                    }
+                });
+            }
+
             // Подменю для обычного пользователя
-            bot.sendMessage(chatId, 'Выберите действие:', {
+            return bot.sendMessage(chatId, 'Выберите действие:', {
                 reply_markup: {
                     inline_keyboard: [
-                        [{ text: 'Получить задание', callback_data: 'get_task' }],
-                        [{ text: 'Отправить ответ', callback_data: 'send_answer' }],
-                        [{ text: 'Текущее задание', callback_data: 'task_status' }],
-                        // [{ text: 'Назад в меню', callback_data: 'back_to_menu' }]
+                        [{ text: '📋 Получить задание', callback_data: 'get_task' }],
+                        [{ text: '📤 Отправить ответ', callback_data: 'send_answer' }],
+                        [{ text: 'ℹ️ Текущее задание', callback_data: 'task_status' }]
                     ]
                 }
             });
+        }
+    } catch (error) {
+        console.error(`Ошибка при обработке сообщения: ${error.message}`);
+        bot.sendMessage(chatId, 'Произошла ошибка при обработке запроса.');
+    }
+});
+
+
+bot.on('message', (msg) => {
+    const chatId = msg.chat.id;
+
+    if (msg.text === 'Группы') {
+        try {
+            if (isAdmin(chatId)) {
+                // Подменю для администратора
+                bot.sendMessage(chatId, '📋 Выберите действие с группами:', {
+                    reply_markup: {
+                        inline_keyboard: [
+                            [
+                                { text: '➕ Создать группу', callback_data: 'create_group' },
+                                { text: '👥 Добавить в группу', callback_data: 'add_group' }
+                            ],
+                            [
+                                { text: '🔄 Сменить группу', callback_data: 'change_group' },
+                                { text: '⭐ Назначить лидера', callback_data: 'assign_leader' }
+                            ],
+                            [{ text: '🎲 Голосование', callback_data: 'roulette_group' }]
+                        ]
+                    }
+                });
+            } else {
+                // Подменю для обычного пользователя
+                bot.sendMessage(chatId, 'ℹ️ Этот раздел находится в разработке. Пожалуйста, ожидайте новых обновлений!');
+            }
+        } catch (error) {
+            console.error(`Ошибка при обработке меню групп: ${error.message}`);
+            bot.sendMessage(chatId, '❌ Произошла ошибка при обработке команды "Группы". Попробуйте позже.');
         }
     }
 });
@@ -141,24 +185,26 @@ bot.on('message', async (msg) => {
 bot.on('message', (msg) => {
     const chatId = msg.chat.id;
 
-    if (msg.text === 'Группы') {
-        // Проверяем, является ли пользователь администратором
-        if (isAdmin(chatId)) {
-            // Подменю для администратора
-            bot.sendMessage(chatId, 'Выберите действие:', {
-                reply_markup: {
-                    inline_keyboard: [
-                        [{ text: 'Создать группу', callback_data: 'create_group' }, { text: 'Добавить в группу', callback_data: 'add_group' }],
-                        [{ text: 'Сменить группу', callback_data: 'change_group' }, { text: 'Назначить лидера группы', callback_data: 'assign_leader' }],
-                        [{ text: 'Голосование', callback_data: 'roulette_group' }]
-                    ]
-                }
-            });
-        } else {
-            // Подменю для обычного пользователя
-            bot.sendMessage(chatId, 'В работе...', {
-
-            });
+    if (msg.text === 'Пользователи') {
+        try {
+            if (isAdmin(chatId)) {
+                // Подменю для администратора
+                bot.sendMessage(chatId, '📋 Выберите действие с пользователями:', {
+                    reply_markup: {
+                        inline_keyboard: [
+                            [
+                                { text: 'Отправить сообщение пользователю', callback_data: 'send_msg' }
+                            ]
+                        ]
+                    }
+                });
+            } else {
+                // Подменю для обычного пользователя
+                bot.sendMessage(chatId, 'ℹ️ Этот раздел находится в разработке. Пожалуйста, ожидайте новых обновлений!');
+            }
+        } catch (error) {
+            console.error(`Ошибка при обработке меню групп: ${error.message}`);
+            bot.sendMessage(chatId, '❌ Произошла ошибка при обработке команды "Группы". Попробуйте позже.');
         }
     }
 });
@@ -594,10 +640,10 @@ bot.on('callback_query', async (callbackQuery) => {
                         }
                     }
                 } else if (task.response_type === 'video') {
-                    if (!msg.video_note) {
+                    if (!msg.video) {
                         return bot.sendMessage(chatId, 'Это задание требует отправки видео.');
                     }
-                    responseFileId = msg.video_note.file_id;
+                    responseFileId = msg.video.file_id;
                     if (task.is_group) {
                         try {
                             await dbClient.query(
@@ -1134,7 +1180,7 @@ bot.on('callback_query', async (callbackQuery) => {
     4. 👥 *Групповые задания* : Если вы являетесь лидером группы, вам будут доступны групповые задания, которые нужно выполнить совместно с вашей командой.   
     5. 🎅 *Тайный Санта* : Участвуйте в акции "Тайный Санта", чтобы сделать праздник еще более веселым, за участие начисляется 2 балла!
     6. ❓ *Помощь* : Если возникнут вопросы, используйте кнопку "Помощь" > "Задать вопрос", чтобы отправить запрос админу.
-    7. 📢 *Канал с ответами пользователей* : В этом [канале](https://t.me/+ArNl9Vx5HYs5Yjky) публикуются все ответы которые дали пользователи.`, 
+    7. 📢 *Канал с ответами пользователей* : В этом [канале](https://t.me/+wulJpMxJlxgyN2Iy) публикуются все ответы которые дали пользователи.`, 
             { parse_mode: 'Markdown' });
     }
     
@@ -1195,7 +1241,7 @@ bot.on('callback_query', async (callbackQuery) => {
             bot.sendMessage(chatId, 'Произошла ошибка при получении списка призов.');
         }
     } else if (data === 'answers') {
-        bot.sendMessage(chatId, 'Вход на [канал](https://t.me/+ArNl9Vx5HYs5Yjky) куда присылаются ответы пользователей', { parse_mode: 'Markdown' });
+        bot.sendMessage(chatId, 'Вход на [канал](https://t.me/+wulJpMxJlxgyN2Iy) куда присылаются ответы пользователей', { parse_mode: 'Markdown' });
     }
 });
 bot.on('callback_query', async (query) => {
@@ -1825,10 +1871,71 @@ bot.on('callback_query', async (callbackQuery) => {
                 console.error('Ошибка при проверке задания:', error);
                 bot.sendMessage(chatId, '❌ Произошла ошибка при подтверждении ответа.');
             }
-        }      
+        }else if (data.startsWith('reject_')) {
+            const [_, taskId, userId] = data.split('_');
+            try {
+                res = await dbClient.query(
+                    'SELECT * FROM users WHERE user_id = $1',
+                    [userId]
+                );
+
+            } catch (error) {
+                console.error('Ошибка при проверке задания:', error);
+                bot.sendMessage(chatId, 'Произошла ошибка при подтверждении ответа.');
+            }
+            if (!!res.rows[0].current_task) {
+                try {
+                    await dbClient.query(
+                        'DELETE FROM user_answers WHERE user_id = $1 AND task_id = $2',
+                        [userId, taskId]
+                    );
+                    bot.sendMessage(chatId, 'Ответ отклонен. Задание останется активным.');
+                    bot.sendMessage(userId, 'Ваш ответ отклонен. Пожалуйста, предоставьте другой ответ.');
+                } catch (error) {
+                    console.error('Ошибка при отклонении ответа:', error);
+                    bot.sendMessage(chatId, 'Произошла ошибка при отклонении ответа.');
+                }
+            } else if (!!res.rows[0].current_group_task) {
+                try {
+                    await dbClient.query(
+                        'DELETE FROM group_task_answers WHERE leader_id = $1 AND task_id = $2',
+                        [userId, taskId]
+                    );
+                    bot.sendMessage(chatId, 'Ответ отклонен. Задание останется активным.');
+                    bot.sendMessage(userId, 'Ваш ответ отклонен. Пожалуйста, предоставьте другой ответ.');
+                } catch (error) {
+                    console.error('Ошибка при отклонении ответа:', error);
+                    bot.sendMessage(chatId, 'Произошла ошибка при отклонении ответа.');
+                }
+            } else {
+                bot.sendMessage(chatId, 'Вы уже работали с этим заданием');
+            }
+            // Удаление сообщения с ответом
+            bot.deleteMessage(chatId, callbackQuery.message.message_id).catch((err) => {
+                console.error('Ошибка при удалении сообщения:', err);
+            });
+        }     
     }
 });
 
+
+bot.on('callback_query', async (callbackQuery) => {
+    const chatId = callbackQuery.message.chat.id;
+    const data = callbackQuery.data;
+
+    if (isAdmin(chatId)) {
+        if (data === 'send_msg') {
+            // Удаляем кнопки, связанные с сообщением
+            await bot.editMessageReplyMarkup({ inline_keyboard: [] }, {
+                chat_id: chatId,
+                message_id: callbackQuery.message.message_id
+            });
+
+            // Отправляем сообщение пользователю
+            await bot.sendMessage(6489651322, 'Я не могу понять кто Вы, поменяйте пожалуйста имя. Мой профиль - Сменить имя');
+        }
+    }
+});
 
 
 
