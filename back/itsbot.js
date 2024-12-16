@@ -2,7 +2,7 @@ const TelegramBot = require('node-telegram-bot-api');
 const { Client } = require('pg');
 require('dotenv').config()
 
-const adminIds = [6705013765, 379802426]; // ID администраторов
+const adminIds = [6705013765, 379802426, 6611272818]; // ID администраторов
 const adminChatId = 6705013765; // Замените на ваш chatId администратора
 
 
@@ -190,7 +190,7 @@ bot.on('callback_query', async (callbackQuery) => {
     
             // Получаем список доступных заданий
             const tasksResult = await dbClient.query(
-                `SELECT t.id, t.task_text, t.points, t.response_type, t.parent_task_id
+                `SELECT t.id, t.task_text, t.points, t.response_type, t.parent_task_id, t.task_title
                  FROM tasks t
                  WHERE t.id NOT IN (
                     SELECT task_id 
@@ -205,7 +205,7 @@ bot.on('callback_query', async (callbackQuery) => {
                         WHERE user_id = $1 AND status = 'completed'
                     )
                  )
-                 ORDER BY t.id LIMIT 10`,
+                 ORDER BY t.id LIMIT 20`,
                 [chatId]
             );
     
@@ -214,7 +214,8 @@ bot.on('callback_query', async (callbackQuery) => {
             }
     
             // Формируем inline-клавиатуру с заданиями
-            const inlineKeyboard = tasksResult.rows.map(task => {
+            const inlineKeyboard = tasksResult.rows.map(task => { 
+                
                 let imgTask = ''; // Иконка по умолчанию (пустая)
     
                 // Определяем иконку в зависимости от response_type
@@ -239,7 +240,7 @@ bot.on('callback_query', async (callbackQuery) => {
                 const prefix = task.parent_task_id ? '🔹:' : '';
     
                 return [{
-                    text: `${prefix} ${imgTask} ${task.task_text.slice(0, 50)} (${task.points} ${getBallaWord(task.points)})`,
+                    text: `${prefix} ${imgTask} ${task.task_title.slice(0, 50)} (${task.points} ${getBallaWord(task.points)})`,
                     callback_data: `select_task_${task.id}`
                 }];
             });
@@ -319,14 +320,14 @@ bot.on('callback_query', async (callbackQuery) => {
 
             // Получаем список доступных заданий для группы
             const tasksResult = await dbClient.query(
-                `SELECT id, task_text, points, response_type
+                `SELECT id, task_text, points, response_type, task_title
                  FROM group_tasks 
                  WHERE id NOT IN (
                     SELECT task_id 
                     FROM group_task_answers 
                     WHERE leader_id = $1 AND status = 'completed'
                  ) 
-                 ORDER BY id LIMIT 10`, // Ограничиваем количество заданий
+                 ORDER BY id LIMIT 20`, // Ограничиваем количество заданий
                 [chatId]
             );
 
@@ -357,7 +358,7 @@ bot.on('callback_query', async (callbackQuery) => {
                         imgTask = '❓'; // Иконка для неизвестного типа
                 }
                 return [{
-                    text: `${imgTask} ${task.task_text.slice(0, 50)} (${task.points} ${getBallaWord(task.points)})`,
+                    text: `${imgTask} ${task.task_title.slice(0, 50)} (${task.points} ${getBallaWord(task.points)})`,
                     callback_data: `select_group_task_${task.id}`
                 }]
             });
@@ -440,6 +441,9 @@ bot.on('callback_query', async (callbackQuery) => {
             'SELECT status, answer, media_type FROM group_task_answers WHERE leader_id = $1',
             [chatId]
         );
+        console.log(curTask.rows);
+        console.log(groupTask.rows);
+        
         if (curTask.rows.length < 1 && groupTask.rows.length < 1) {
             return bot.sendMessage(chatId, 'У вас нет активного задания.');
         } else if (curTaskStatus.rows.some(item => item.status === 'pending')) {
@@ -764,7 +768,9 @@ bot.onText(/Мой профиль/, async (msg) => {
              FROM users 
              WHERE user_id = $1`,
             [res.rows[0].santa_for]
-        )
+        ) 
+        
+        
         if (res.rows.length > 0) {
             const user = res.rows[0];
             const fullName = `${user.first_name} ${user.last_name}`;
@@ -772,8 +778,7 @@ bot.onText(/Мой профиль/, async (msg) => {
             const group = user.groupname || 'Нет группы';
             const santaStatus = user.secret_santa ? 'Да' : 'Нет';
             const isLeader = user.is_leader
-            const santaFor = user.secret_santa ? `Тайный Санта для <tg-spoiler>${santa_user.rows[0].first_name} ${santa_user.rows[0].last_name}</tg-spoiler>` : ''
-
+            const santaFor = user.secret_santa && santa_user.rows.length > 0 ? `Тайный Санта для <tg-spoiler>${santa_user.rows[0].first_name} ${santa_user.rows[0].last_name}</tg-spoiler>` : '';
 
 
             const ballWord = getBallaWord(points);
@@ -1040,6 +1045,9 @@ bot.on('callback_query', async (callbackQuery) => {
         const user = await dbClient.query('SELECT first_name, last_name FROM users WHERE user_id = $1', [targetUserId]);
 
         const username = `${user.rows[0].first_name} ${user.rows[0].last_name}`
+        // if(newStatusBoolean) {
+        //     await dbClient.query('UPDATE users SET points =+2 WHERE user_id = $1', [targetUserId]);
+        // }
 
 
         // Отправляем подтверждение
@@ -1058,7 +1066,7 @@ bot.on('callback_query', async (callbackQuery) => {
         const userId = data.split('_')[2];
 
         try {
-            await dbClient.query('UPDATE users SET secret_santa = true WHERE user_id = $1', [userId]);
+            await dbClient.query('UPDATE users SET secret_santa = true, points =+2 WHERE user_id = $1', [userId]);
             await bot.sendMessage(chatId, 'Вы записаны в Тайного Санту! 🎉');
         } catch (error) {
             console.error('Ошибка обновления статуса:', error);
@@ -1091,6 +1099,9 @@ bot.on('message', (msg) => {
                     [
                         { text: 'Задать вопрос', callback_data: 'help_question' },
                     ],
+                    [
+                        { text: 'Ответы пользователей', callback_data: 'answers' },
+                    ],
                 ],
             },
         };
@@ -1118,11 +1129,12 @@ bot.on('callback_query', async (callbackQuery) => {
             `*Описание бота:*
             
     1. 📝 *Получение заданий* : Бот будет отправлять вам задания. Вы можете ответить на них в текстовом или медиа-формате (фото, видео, аудио, документ).    
-    2. 📤 *Отправка ответов* : После выполнения задания, отправьте ответ в чат с ботом. Администратор проверит ваш ответ. Важно, при отправке ответа нажимать кнопку "Отправить ответ".   
+    2. 📤 *Отправка ответов* : После выполнения задания, отправьте ответ в чат с ботом. Администратор проверит ваш ответ.\n *Важно, при отправке ответа нажимать кнопку "Отправить ответ".*   
     3. 💰 *Баллы* : За правильные ответы вы будете получать баллы. Вы можете отслеживать свой прогресс в разделе "Мой профиль".   
     4. 👥 *Групповые задания* : Если вы являетесь лидером группы, вам будут доступны групповые задания, которые нужно выполнить совместно с вашей командой.   
-    5. 🎅 *Секретный Санта* : Участвуйте в акции "Секретный Санта", чтобы сделать праздник еще более веселым!
-    6. ❓ *Помощь* : Если возникнут вопросы, используйте кнопку "Помощь" > "Задать вопрос", чтобы отправить запрос админу.`, 
+    5. 🎅 *Тайный Санта* : Участвуйте в акции "Тайный Санта", чтобы сделать праздник еще более веселым, за участие начисляется 2 балла!
+    6. ❓ *Помощь* : Если возникнут вопросы, используйте кнопку "Помощь" > "Задать вопрос", чтобы отправить запрос админу.
+    7. 📢 *Канал с ответами пользователей* : В этом [канале](https://t.me/+ArNl9Vx5HYs5Yjky) публикуются все ответы которые дали пользователи.`, 
             { parse_mode: 'Markdown' });
     }
     
@@ -1182,8 +1194,8 @@ bot.on('callback_query', async (callbackQuery) => {
             console.error('Ошибка при получении списка призов:', error);
             bot.sendMessage(chatId, 'Произошла ошибка при получении списка призов.');
         }
-    } else if (data === 'help_question') {
-        bot.sendMessage(chatId, 'Вы можете задать свой вопрос или пожелание, отправив сообщение прямо здесь. Администратор свяжется с вами!');
+    } else if (data === 'answers') {
+        bot.sendMessage(chatId, 'Вход на [канал](https://t.me/+ArNl9Vx5HYs5Yjky) куда присылаются ответы пользователей', { parse_mode: 'Markdown' });
     }
 });
 bot.on('callback_query', async (query) => {
