@@ -585,6 +585,90 @@ bot.on('callback_query', async (callbackQuery) => {
                             bot.sendMessage(chatId, 'Произошла ошибка при сохранении вашего ответа.');
                         }
                     }
+                } else if (task.response_type === 'image') {                    
+                    if (!msg.photo) {
+                        return bot.sendMessage(chatId, 'Это задание требует отправки изображения.');
+                    }
+                    responseFileId = msg.photo[msg.photo.length - 1].file_id;
+                    if (task.is_group) {
+                        try {
+                            await dbClient.query(
+                                'INSERT INTO group_task_answers (leader_id, task_id, answer, media_type, status, is_group) VALUES ($1, $2, $3, $4, $5, $6)',
+                                [chatId, taskId, responseFileId, 'image', 'pending', true]
+                            );
+                            bot.sendMessage(chatId, 'Ответ отправлен.');
+                        } catch (error) {
+                            console.error('Ошибка при сохранении ответа:', error);
+                            bot.sendMessage(chatId, 'Произошла ошибка при сохранении вашего ответа.');
+                        }
+                    } else {
+                        try {
+                            await dbClient.query(
+                                'INSERT INTO user_answers (user_id, task_id, answer, media_type, status) VALUES ($1, $2, $3, $4, $5)',
+                                [chatId, taskId, responseFileId, 'image', 'pending']
+                            );
+                            bot.sendMessage(chatId, 'Ответ отправлен.');
+                        } catch (error) {
+                            console.error('Ошибка при сохранении ответа:', error);
+                            bot.sendMessage(chatId, 'Произошла ошибка при сохранении вашего ответа.');
+                        }
+                    }
+                } else if (task.response_type === 'audio') {
+                    if (!msg.voice) {
+                        return bot.sendMessage(chatId, 'Это задание требует отправки аудио.');
+                    }
+                    responseFileId = msg.voice.file_id;
+                    if (task.is_group) {
+                        try {
+                            await dbClient.query(
+                                'INSERT INTO group_task_answers (leader_id, task_id, answer, media_type, status, is_group) VALUES ($1, $2, $3, $4, $5, $6)',
+                                [chatId, taskId, responseFileId, 'audio', 'pending', true]
+                            );
+                            bot.sendMessage(chatId, 'Ответ отправлен.');
+                        } catch (error) {
+                            console.error('Ошибка при сохранении ответа:', error);
+                            bot.sendMessage(chatId, 'Произошла ошибка при сохранении вашего ответа.');
+                        }
+                    } else {
+                        try {
+                            await dbClient.query(
+                                'INSERT INTO user_answers (user_id, task_id, answer, media_type, status) VALUES ($1, $2, $3, $4, $5)',
+                                [chatId, taskId, responseFileId, 'audio', 'pending']
+                            );
+                            bot.sendMessage(chatId, 'Ответ отправлен.');
+                        } catch (error) {
+                            console.error('Ошибка при сохранении ответа:', error);
+                            bot.sendMessage(chatId, 'Произошла ошибка при сохранении вашего ответа.');
+                        }
+                    }
+                } else if (task.response_type === 'video') {
+                    if (!msg.video) {
+                        return bot.sendMessage(chatId, 'Это задание требует отправки видео.');
+                    }
+                    responseFileId = msg.video.file_id;
+                    if (task.is_group) {
+                        try {
+                            await dbClient.query(
+                                'INSERT INTO group_task_answers (leader_id, task_id, answer, media_type, status, is_group) VALUES ($1, $2, $3, $4, $5, $6)',
+                                [chatId, taskId, responseFileId, 'video', 'pending', true]
+                            );
+                            bot.sendMessage(chatId, 'Ответ отправлен.');
+                        } catch (error) {
+                            console.error('Ошибка при сохранении ответа:', error);
+                            bot.sendMessage(chatId, 'Произошла ошибка при сохранении вашего ответа.');
+                        }
+                    } else {
+                        try {
+                            await dbClient.query(
+                                'INSERT INTO user_answers (user_id, task_id, answer, media_type, status) VALUES ($1, $2, $3, $4, $5)',
+                                [chatId, taskId, responseFileId, 'video', 'pending']
+                            );
+                            bot.sendMessage(chatId, 'Ответ отправлен.');
+                        } catch (error) {
+                            console.error('Ошибка при сохранении ответа:', error);
+                            bot.sendMessage(chatId, 'Произошла ошибка при сохранении вашего ответа.');
+                        }
+                    }
                 }
             } catch (error) {
                 console.error(error);
@@ -929,7 +1013,8 @@ bot.on('callback_query', async (callbackQuery) => {
                     [assignment.santa_id, assignment.user_id]
                 );
                 // Тайный Санта получает сообщение о том, кому он должен дарить подарок
-                bot.sendMessage(assignment.user_id, `Ты Тайный Санта для <tg-spoiler>${receiver.rows[0].first_name} ${receiver.rows[0].last_name}</tg-spoiler>. Удачи!`, { parse_mode: 'HTML' });
+                // bot.sendMessage(assignment.user_id, `Ты Тайный Санта для <tg-spoiler>${receiver.rows[0].first_name} ${receiver.rows[0].last_name}</tg-spoiler>. Удачи!\n*Подарки необходимо принести до 26 декабря!*\nНеобходимо ваш подарок *упаковать и подписать* для кого он предназначен\nПодарки принимают Валерия Л. и Анастасия И.`, { parse_mode: 'HTML' });
+                bot.sendMessage(assignment.user_id, `Ты Тайный Санта для <tg-spoiler>${receiver.rows[0].first_name} ${receiver.rows[0].last_name}</tg-spoiler>. Удачи!\n<b>Подарок необходимо принести до 26 декабря!</b>\nНе забудь его упаковать и подписать, для кого он предназначен.\nПодарки принимают Валерия Логвиненко и Анастасия Ильиных`, { parse_mode: 'HTML' });
                 // bot.sendMessage(assignment.user_id, `Ты Тайный Санта для ${receiver.rows[0].first_name} ${receiver.rows[0].last_name}`);
 
 
@@ -1028,7 +1113,7 @@ bot.on('callback_query', async (callbackQuery) => {
         const userId = data.split('_')[2];
 
         try {
-            await dbClient.query('UPDATE users SET secret_santa = true, points =+2 WHERE user_id = $1', [userId]);
+            await dbClient.query('UPDATE users SET secret_santa = true, points =points+2 WHERE user_id = $1', [userId]);
             await bot.sendMessage(chatId, 'Вы записаны в Тайного Санту! 🎉');
         } catch (error) {
             console.error('Ошибка обновления статуса:', error);
@@ -1860,7 +1945,8 @@ bot.on('callback_query', async (callbackQuery) => {
             });
 
             // Отправляем сообщение пользователю
-            // await bot.sendMessage(6586475494, 'Я не могу понять кто Вы, поменяйте пожалуйста имя. Мой профиль - Сменить имя');
+            // bot.sendMessage(6705013765, `Ты Тайный Санта для <tg-spoiler>Игорь Р.</tg-spoiler>. Удачи!\n<b>Подарок необходимо принести до 26 декабря!</b>\nНе забудь его упаковать и подписать, для кого он предназначен.\nПодарки принимают Валерия Логвиненко и Анастасия Ильиных`, { parse_mode: 'HTML' });
+            // await bot.sendMessage(6489651322, 'Отменил задание');
         }
     }
 });
