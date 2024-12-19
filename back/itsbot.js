@@ -1941,19 +1941,18 @@ bot.on('callback_query', async (callbackQuery) => {
 
     if (isAdmin(chatId)) {
         if (data === 'send_msg') {
-            const users = await dbClient.query('SELECT user_id FROM users where user_id = 6586475494') 
-            console.log(users.rows);
-            
-            // users.forEach((user) => {
-            //     bot.sendMessage(user.user_id, "Пожалуйста, перезапустите бота 👉 /start" );
-            // }); 
+            try {
+                const users = await dbClient.query('SELECT user_id FROM users') 
+                console.log(users.rows); 
 
-            // users.map(user => {
-            //     bot.sendMessage(user.user_id, "Пожалуйста, перезапустите бота 👉 /start" );
-            // })
+                users.rows.map(user => {
+                    bot.sendMessage(user.user_id, "Пожалуйста, перезапустите бота 👉 /start" );
+                })
+            } catch (error) {
+                console.error('Ошибка при отправке сообщений:', error);
+            }
 
-            // Отправляем сообщение пользователю
-            // bot.sendMessage(761134300, `Ты Тайный Санта для <tg-spoiler>Антон Малов</tg-spoiler>. Удачи!\n<b>Подарок необходимо принести до 26 декабря!</b>\nНе забудь его упаковать и подписать, для кого он предназначен.\nПодарки принимают Валерия Логвиненко и Анастасия Ильиных`, { parse_mode: 'HTML' });
+            // Отправляем сообщение пользователю 
             // await bot.sendMessage(chatId, 'Тест');
         }else if (data === 'reserv_prizes') { 
             // Получаем все резервированные призы 
